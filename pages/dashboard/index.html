@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QQ WebUI</title>
+    <link rel="stylesheet" href="./styles.css?v=20260623d" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="sidebar">
+        <div class="sidebar-top">
+          <div class="account-strip">
+            <div class="account-strip-main">
+              <div class="avatar" id="accountAvatar">Q</div>
+              <div class="account-strip-copy">
+                <div class="account-strip-title">
+                  <strong id="accountName">Not connected</strong>
+                  <span id="adapterDot" class="status-dot" aria-hidden="true"></span>
+                </div>
+                <span id="accountMeta">Bind aiocqhttp first</span>
+              </div>
+            </div>
+            <div class="header-actions">
+              <button
+                id="toggleContactsBtn"
+                class="ghost-button icon-button"
+                type="button"
+                title="Toggle contacts"
+                aria-label="Toggle contacts"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path>
+                  <circle
+                    cx="9"
+                    cy="7"
+                    r="4"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  ></circle>
+                  <path
+                    d="M23 21v-2a4 4 0 0 0-3-3.87"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path>
+                  <path
+                    d="M16 3.13a4 4 0 0 1 0 7.75"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="search-row">
+            <button
+              id="sidebarPlusBtn"
+              class="ghost-button icon-button"
+              type="button"
+              title="More actions"
+              aria-label="More actions"
+            >
+              <span class="plus-mark" aria-hidden="true">+</span>
+            </button>
+            <input
+              id="sessionSearchInput"
+              class="search-input"
+              type="search"
+              placeholder="Group name / QQ"
+            />
+          </div>
+        </div>
+
+        <div class="sidebar-body">
+          <div class="list-title">
+            <span id="leftListTitle">Recent sessions</span>
+            <strong id="leftListCount">0</strong>
+          </div>
+          <div id="sessionList" class="session-list empty-state">
+            No QQ traffic yet. Send or receive a message first.
+          </div>
+          <div id="contactList" class="contact-list empty-state is-hidden">
+            Contacts will appear automatically.
+          </div>
+        </div>
+      </section>
+
+      <section class="chat-panel">
+        <div class="panel-header chat-header">
+          <h2 id="chatTitle">Choose a session</h2>
+          <button
+            id="chatMenuBtn"
+            class="ghost-button icon-button"
+            type="button"
+            title="More chat actions"
+            aria-label="More chat actions"
+          >
+            <span class="menu-mark" aria-hidden="true">≡</span>
+          </button>
+        </div>
+
+        <div id="messageList" class="message-list">
+          <div id="messageListContent" class="message-list-content empty-state">
+            Select a conversation from the left side.
+          </div>
+        </div>
+
+        <form id="composerForm" class="composer composer-shell">
+          <div id="composerPreview" class="composer-preview is-hidden"></div>
+          <div class="composer-input-row">
+            <div class="composer-tools">
+              <div
+                id="facePickerWrap"
+                class="face-picker-wrap"
+              >
+                <button
+                  id="facePickerBtn"
+                  class="ghost-button icon-button"
+                  type="button"
+                  title="QQ faces"
+                  aria-label="QQ faces"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="8"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    ></circle>
+                    <circle cx="9" cy="10" r="1" fill="currentColor"></circle>
+                    <circle cx="15" cy="10" r="1" fill="currentColor"></circle>
+                    <path
+                      d="M8 14c1.1 1.1 2.4 1.6 4 1.6S14.9 15.1 16 14"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    ></path>
+                  </svg>
+                </button>
+                <div
+                  id="facePickerPanel"
+                  class="face-picker-panel is-hidden"
+                  aria-hidden="true"
+                >
+                  <div id="facePickerList" class="face-picker-list"></div>
+                </div>
+              </div>
+              <label
+                id="attachmentButton"
+                class="ghost-button icon-button file-button"
+                title="Upload attachment"
+                aria-label="Upload attachment"
+              >
+                <input
+                  id="attachmentInput"
+                  type="file"
+                  accept="image/*,audio/*,video/*,.mp3,.wav,.ogg,.m4a,.aac,.flac,.amr,.mp4,.mov,.m4v,.webm,.mkv,.avi,.pdf,.txt,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z"
+                  multiple
+                  hidden
+                />
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path>
+                  <polyline
+                    points="17 8 12 3 7 8"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></polyline>
+                  <line
+                    x1="12"
+                    y1="3"
+                    x2="12"
+                    y2="15"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></line>
+                </svg>
+              </label>
+            </div>
+            <textarea
+              id="composerInput"
+              rows="2"
+              placeholder="Type a message to the active session"
+              disabled
+            ></textarea>
+            <button id="sendBtn" class="primary-button" type="submit" disabled>
+              Send
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="detail-panel">
+        <div class="panel-header chat-header detail-header">
+          <h2 id="memberPanelTitle">Group Members</h2>
+        </div>
+        <div id="memberList" class="member-list empty-state">
+          Group members will appear here.
+        </div>
+      </aside>
+    </main>
+
+    <div id="quoteModal" class="quote-modal is-hidden" aria-hidden="true">
+      <div id="quoteModalBackdrop" class="quote-modal-backdrop"></div>
+      <section
+        class="quote-modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="quoteModalTitle"
+      >
+        <header class="quote-modal-header">
+          <div class="quote-modal-copy">
+            <strong id="quoteModalTitle">Quoted Message</strong>
+            <span id="quoteModalMeta">Forward details</span>
+          </div>
+          <button
+            id="quoteModalCloseBtn"
+            class="ghost-button icon-button"
+            type="button"
+            title="Close quote viewer"
+            aria-label="Close quote viewer"
+          >
+            ×
+          </button>
+        </header>
+        <div id="quoteModalBody" class="quote-modal-body"></div>
+      </section>
+    </div>
+
+    <script type="module" src="./app.js?v=20260623d"></script>
+  </body>
+</html>

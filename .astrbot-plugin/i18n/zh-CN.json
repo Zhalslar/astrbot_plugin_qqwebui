@@ -1,0 +1,93 @@
+{
+  "metadata": {
+    "display_name": "QQ面板",
+    "desc": "精心打造的网页版 QQ 插件，支持在 AstrBot 面板上与 QQ 群聊、私聊进行交互"
+  },
+  "pages": {
+    "dashboard": {
+      "title": "QQ面板",
+      "description": "查看最近会话、联系人、群成员并在面板内收发 QQ 消息。",
+      "actions": {
+        "show_sessions": "显示最近会话",
+        "show_contacts": "显示联系人",
+        "more_chat_actions": "更多会话操作",
+        "upload_attachment": "上传附件",
+        "close_quote_viewer": "关闭转发查看器"
+      },
+      "sessions": {
+        "title": "最近会话",
+        "search_placeholder": "群名 / QQ",
+        "empty": "暂无 QQ 消息流量。请先发送或接收一条消息。",
+        "no_preview": "暂无预览"
+      },
+      "contacts": {
+        "title": "联系人",
+        "search_placeholder": "好友 / 群聊 / QQ",
+        "empty": "刷新后会显示联系人。",
+        "types": {
+          "group": "群聊",
+          "private": "私聊"
+        }
+      },
+      "composer": {
+        "placeholder": "向当前会话发送消息",
+        "send": "发送"
+      },
+      "members": {
+        "panel_title": "群成员",
+        "open_group": "打开一个群会话后即可查看成员缓存。",
+        "empty": "暂无已加载的群成员。",
+        "item_meta": "{role} - QQ {id}",
+        "roles": {
+          "owner": "群主",
+          "admin": "管理员",
+          "member": "成员"
+        }
+      },
+      "messages": {
+        "select_session": "请先从左侧选择一个会话。",
+        "empty_session": "当前会话暂无缓存消息。",
+        "reply": "回复",
+        "unknown_user": "未知用户",
+        "empty_message": "[空消息]"
+      },
+      "forward": {
+        "modal_title": "转发消息",
+        "modal_meta": "{count} 条消息",
+        "card_title": "聊天记录",
+        "card_footer": "消息",
+        "record_fallback": "转发消息"
+      },
+      "attachments": {
+        "image": "图片",
+        "video": "视频",
+        "audio": "音频",
+        "file": "文件",
+        "image_alt": "图片",
+        "qq_face_alt": "[QQ 表情]"
+      },
+      "status": {
+        "not_connected": "未连接",
+        "waiting_adapter": "等待 aiocqhttp 连接",
+        "quote_not_loaded": "引用消息不在当前已加载的消息窗口中。",
+        "message_sent": "消息已发送",
+        "send_failed": "发送失败。",
+        "paste_ignored_large": "已忽略超过 15 MB 的粘贴附件。",
+        "pasted_one": "已粘贴附件：{name}",
+        "pasted_many": "已粘贴 {count} 个附件",
+        "attachment_paste_failed": "粘贴附件失败。",
+        "upload_ignored_large": "已忽略超过 15 MB 的附件。",
+        "selected_one": "已选择附件：{name}",
+        "selected_many": "已选择 {count} 个附件",
+        "attachment_upload_failed": "上传附件失败。",
+        "polling_failed": "轮询失败。",
+        "initialization_failed": "初始化失败。"
+      },
+      "errors": {
+        "timeout": "AstrBot WebUI 请求超时。",
+        "request_failed": "请求失败。",
+        "upload_failed": "上传失败。"
+      }
+    }
+  }
+}

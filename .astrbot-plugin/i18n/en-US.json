@@ -1,0 +1,93 @@
+{
+  "metadata": {
+    "display_name": "QQ Dashboard",
+    "desc": "A polished web-based QQ plugin for interacting with QQ group and private chats inside the AstrBot dashboard."
+  },
+  "pages": {
+    "dashboard": {
+      "title": "QQ Dashboard",
+      "description": "Browse recent sessions, contacts, group members, and send QQ messages directly in the dashboard.",
+      "actions": {
+        "show_sessions": "Show recent sessions",
+        "show_contacts": "Show contacts",
+        "more_chat_actions": "More chat actions",
+        "upload_attachment": "Upload attachment",
+        "close_quote_viewer": "Close quote viewer"
+      },
+      "sessions": {
+        "title": "Recent sessions",
+        "search_placeholder": "Group name / QQ",
+        "empty": "No QQ traffic yet. Send or receive a message first.",
+        "no_preview": "No preview"
+      },
+      "contacts": {
+        "title": "Contacts",
+        "search_placeholder": "Friend / group / QQ",
+        "empty": "Contacts will appear after refresh.",
+        "types": {
+          "group": "Group",
+          "private": "Private"
+        }
+      },
+      "composer": {
+        "placeholder": "Type a message to the active session",
+        "send": "Send"
+      },
+      "members": {
+        "panel_title": "Group Members",
+        "open_group": "Open a group session to inspect member cache.",
+        "empty": "No group members loaded yet.",
+        "item_meta": "{role} - QQ {id}",
+        "roles": {
+          "owner": "owner",
+          "admin": "admin",
+          "member": "member"
+        }
+      },
+      "messages": {
+        "select_session": "Select a conversation from the left side.",
+        "empty_session": "No cached messages for this session yet.",
+        "reply": "Reply",
+        "unknown_user": "Unknown User",
+        "empty_message": "[Empty message]"
+      },
+      "forward": {
+        "modal_title": "Forwarded Messages",
+        "modal_meta": "{count} messages",
+        "card_title": "Chat History",
+        "card_footer": "Messages",
+        "record_fallback": "Forwarded message"
+      },
+      "attachments": {
+        "image": "Image",
+        "video": "Video",
+        "audio": "Audio",
+        "file": "File",
+        "image_alt": "image",
+        "qq_face_alt": "[QQ face]"
+      },
+      "status": {
+        "not_connected": "Not connected",
+        "waiting_adapter": "Waiting for aiocqhttp",
+        "quote_not_loaded": "Quoted message is not in the current loaded message window.",
+        "message_sent": "Message sent",
+        "send_failed": "Send failed.",
+        "paste_ignored_large": "Ignored pasted attachments larger than 15 MB.",
+        "pasted_one": "Pasted attachment: {name}",
+        "pasted_many": "Pasted {count} attachments",
+        "attachment_paste_failed": "Attachment paste failed.",
+        "upload_ignored_large": "Ignored attachments larger than 15 MB.",
+        "selected_one": "Selected attachment: {name}",
+        "selected_many": "Selected {count} attachments",
+        "attachment_upload_failed": "Attachment upload failed.",
+        "polling_failed": "Polling failed.",
+        "initialization_failed": "Initialization failed."
+      },
+      "errors": {
+        "timeout": "AstrBot WebUI request timed out.",
+        "request_failed": "Request failed.",
+        "upload_failed": "Upload failed."
+      }
+    }
+  }
+}
