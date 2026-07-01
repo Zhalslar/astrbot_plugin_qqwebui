@@ -1,5 +1,4 @@
-<img width="1920" height="1020" alt="tmpCB2D" src="https://github.com/user-attachments/assets/ffcdd731-fc29-4b79-8439-e3b407daaef9" />
-<div align="center">
+![:name](https://count.getloli.com/@astrbot_plugin_qqwebui?name=astrbot_plugin_qqwebui&theme=minecraft&padding=6&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)
 
 # astrbot_plugin_qqwebui
 
@@ -26,7 +25,7 @@ _✨ QQ 面板 ✨_
 
 ### 示例图
 
-![:name](https://count.getloli.com/@astrbot_plugin_qqwebui?name=astrbot_plugin_qqwebui&theme=minecraft&padding=6&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)
+<img width="1920" height="1020" alt="tmpCB2D" src="https://github.com/user-attachments/assets/5e99c6e0-dc70-4134-b407-1d6eb2a2889e" />
 
 
 ## 👥 贡献指南
