@@ -12,6 +12,8 @@
         "show_contacts": "Show contacts",
         "more_chat_actions": "More chat actions",
         "upload_attachment": "Upload attachment",
+        "emoji": "Emoji",
+        "close_media_preview": "Close media preview",
         "close_quote_viewer": "Close quote viewer"
       },
       "sessions": {
@@ -31,7 +33,15 @@
       },
       "composer": {
         "placeholder": "Type a message to the active session",
-        "send": "Send"
+        "send": "Send",
+        "mention_all": "all",
+        "mention_all_hint": "Mention everyone",
+        "replying_to": "Replying to",
+        "cancel_reply": "Cancel reply",
+        "face_title": "QQ Face",
+        "face_loading": "Loading faces...",
+        "face_empty": "No faces available.",
+        "face_load_failed": "Failed to load faces."
       },
       "members": {
         "panel_title": "Group Members",
@@ -44,10 +54,86 @@
           "member": "member"
         }
       },
+      "profile": {
+        "title": "Profile",
+        "friend": "Friend",
+        "close": "Close",
+        "refresh": "Refresh",
+        "refreshing": "Refreshing...",
+        "loading": "Loading cached profile...",
+        "empty": "Profile details will appear here after refresh.",
+        "load_failed": "Failed to load cached profile.",
+        "refresh_failed": "Failed to refresh profile.",
+        "sections": {
+          "basic": "Basic",
+          "qq": "QQ Profile",
+          "group": "Group Profile"
+        },
+        "boolean": {
+          "yes": "Yes",
+          "no": "No"
+        },
+        "roles": {
+          "owner": "Owner",
+          "admin": "Admin",
+          "member": "Member"
+        },
+        "sex": {
+          "male": "Male",
+          "female": "Female",
+          "unknown": "Unknown"
+        },
+        "fields": {
+          "display_name": "Display Name",
+          "nickname": "Nickname",
+          "remark": "Remark",
+          "group_card": "Group Card",
+          "qid": "QID",
+          "sex": "Sex",
+          "age": "Age",
+          "area": "Area",
+          "birthday": "Birthday",
+          "user_id": "QQ",
+          "uid": "UID",
+          "qqLevel": "QQ Level",
+          "long_nick": "Long Nick",
+          "reg_time": "Registered At",
+          "is_vip": "VIP",
+          "is_years_vip": "Years VIP",
+          "vip_level": "VIP Level",
+          "status": "Status",
+          "login_days": "Login Days",
+          "birthday_year": "Birth Year",
+          "birthday_month": "Birth Month",
+          "birthday_day": "Birth Day",
+          "kBloodType": "Blood Type",
+          "phoneNum": "Phone",
+          "eMail": "Email",
+          "homeTown": "Home Town",
+          "country": "Country",
+          "province": "Province",
+          "city": "City",
+          "address": "Address",
+          "makeFriendCareer": "Career",
+          "labels": "Labels",
+          "group_id": "Group ID",
+          "card": "Card",
+          "join_time": "Join Time",
+          "last_sent_time": "Last Sent",
+          "level": "Level",
+          "role": "Role",
+          "unfriendly": "Unfriendly",
+          "is_robot": "Robot",
+          "title": "Title",
+          "title_expire_time": "Title Expires",
+          "card_changeable": "Card Changeable"
+        }
+      },
       "messages": {
         "select_session": "Select a conversation from the left side.",
         "empty_session": "No cached messages for this session yet.",
         "reply": "Reply",
+        "reply_jump": "Jump to message",
         "unknown_user": "Unknown User",
         "empty_message": "[Empty message]"
       },
@@ -64,7 +150,7 @@
         "audio": "Audio",
         "file": "File",
         "image_alt": "image",
-        "qq_face_alt": "[QQ face]"
+        "qq_face_alt": "[QQ Face]"
       },
       "status": {
         "not_connected": "Not connected",

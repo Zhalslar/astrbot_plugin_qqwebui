@@ -1,7 +1,10 @@
 name: astrbot_plugin_qqwebui
 display_name: QQ面板
-desc: 精心打造的网页版 QQ 插件,支持在 Astrbot 面板上与 QQ 群聊、私聊进行交互
+desc: 精心打造的第三方 QQ 客户端（网页版）,支持在 Astrbot 面板上与操控 QQ 进行交互
 help: 略
-version: v1.0.0
+version: v1.1.0
 author: Zhalslar
 repo: https://github.com/Zhalslar/astrbot_plugin_qqwebui
+support_platforms:
+  - aiocqhttp
+astrbot_version: ">=4.24.2"

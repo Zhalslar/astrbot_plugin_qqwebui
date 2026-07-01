@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>QQ WebUI</title>
-    <link rel="stylesheet" href="./styles.css?v=20260623d" />
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="app-shell">
@@ -109,59 +109,102 @@
             title="More chat actions"
             aria-label="More chat actions"
           >
-            <span class="menu-mark" aria-hidden="true">≡</span>
+            <span class="menu-mark" aria-hidden="true">...</span>
           </button>
         </div>
 
-        <div id="messageList" class="message-list">
-          <div id="messageListContent" class="message-list-content empty-state">
-            Select a conversation from the left side.
+        <div class="message-list-shell">
+          <button
+            id="messageJumpToUnreadBtn"
+            class="message-jump-button message-jump-button-top is-hidden"
+            type="button"
+            title="Jump to previous reading position"
+            aria-label="Jump to previous reading position"
+          >
+            <span id="messageJumpUnreadTop" class="message-jump-unread">0</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 19V7"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              ></path>
+              <path
+                d="M7 12l5-5 5 5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+            </svg>
+          </button>
+          <div id="messageList" class="message-list">
+            <div id="messageListContent" class="message-list-content empty-state">
+              Select a conversation from the left side.
+            </div>
           </div>
+          <button
+            id="messageJumpToBottomBtn"
+            class="message-jump-button is-hidden"
+            type="button"
+            title="Jump to latest messages"
+            aria-label="Jump to latest messages"
+          >
+            <span id="messageJumpUnread" class="message-jump-unread">0</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 5v12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              ></path>
+              <path
+                d="M7 12l5 5 5-5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+            </svg>
+          </button>
         </div>
 
         <form id="composerForm" class="composer composer-shell">
           <div id="composerPreview" class="composer-preview is-hidden"></div>
+          <div id="composerReplyBar" class="composer-reply-bar is-hidden"></div>
           <div class="composer-input-row">
-            <div class="composer-tools">
-              <div
-                id="facePickerWrap"
-                class="face-picker-wrap"
+            <div class="composer-tools composer-tools-left">
+              <button
+                id="emojiButton"
+                class="ghost-button icon-button"
+                type="button"
+                title="Emoji"
+                aria-label="Emoji"
               >
-                <button
-                  id="facePickerBtn"
-                  class="ghost-button icon-button"
-                  type="button"
-                  title="QQ faces"
-                  aria-label="QQ faces"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <circle
-                      cx="12"
-                      cy="12"
-                      r="8"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                    ></circle>
-                    <circle cx="9" cy="10" r="1" fill="currentColor"></circle>
-                    <circle cx="15" cy="10" r="1" fill="currentColor"></circle>
-                    <path
-                      d="M8 14c1.1 1.1 2.4 1.6 4 1.6S14.9 15.1 16 14"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                    ></path>
-                  </svg>
-                </button>
-                <div
-                  id="facePickerPanel"
-                  class="face-picker-panel is-hidden"
-                  aria-hidden="true"
-                >
-                  <div id="facePickerList" class="face-picker-list"></div>
-                </div>
-              </div>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  ></circle>
+                  <circle cx="9" cy="10" r="1" fill="currentColor"></circle>
+                  <circle cx="15" cy="10" r="1" fill="currentColor"></circle>
+                  <path
+                    d="M8 14c1.2 1.4 2.5 2 4 2s2.8-.6 4-2"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  ></path>
+                </svg>
+              </button>
               <label
                 id="attachmentButton"
                 class="ghost-button icon-button file-button"
@@ -205,16 +248,79 @@
                   ></line>
                 </svg>
               </label>
+              <div id="emojiPanel" class="emoji-panel is-hidden">
+                <div class="emoji-panel-title">QQ Face</div>
+                <div class="emoji-panel-body">Coming soon.</div>
+              </div>
             </div>
-            <textarea
-              id="composerInput"
-              rows="2"
-              placeholder="Type a message to the active session"
-              disabled
-            ></textarea>
-            <button id="sendBtn" class="primary-button" type="submit" disabled>
-              Send
-            </button>
+            <div class="composer-editor-shell">
+              <div
+                id="composerInput"
+                class="composer-editor is-disabled"
+                contenteditable="false"
+                role="textbox"
+                aria-multiline="true"
+                aria-label="Type a message to the active session"
+                data-placeholder="Type a message to the active session"
+              ></div>
+              <div
+                id="composerMentionSuggestions"
+                class="composer-mention-suggestions is-hidden"
+              ></div>
+            </div>
+            <div class="composer-tools composer-tools-right">
+              <button
+                id="recordButton"
+                class="ghost-button icon-button record-button"
+                type="button"
+                title="Record voice"
+                aria-label="Record voice"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path>
+                  <path
+                    d="M19 11a7 7 0 0 1-14 0"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path>
+                  <line
+                    x1="12"
+                    y1="18"
+                    x2="12"
+                    y2="21"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></line>
+                  <line
+                    x1="8"
+                    y1="21"
+                    x2="16"
+                    y2="21"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></line>
+                </svg>
+              </button>
+              <button id="sendBtn" class="primary-button" type="submit" disabled>
+                Send
+              </button>
+            </div>
           </div>
         </form>
       </section>
@@ -229,33 +335,100 @@
       </aside>
     </main>
 
-    <div id="quoteModal" class="quote-modal is-hidden" aria-hidden="true">
-      <div id="quoteModalBackdrop" class="quote-modal-backdrop"></div>
+    <div id="profileModal" class="profile-modal is-hidden" aria-hidden="true">
+      <button
+        id="profileModalBackdrop"
+        class="profile-modal-backdrop"
+        type="button"
+        aria-label="Close profile card"
+      ></button>
       <section
-        class="quote-modal-panel"
+        id="profileModalCard"
+        class="profile-modal-card"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="quoteModalTitle"
+        aria-labelledby="profileModalName"
       >
-        <header class="quote-modal-header">
-          <div class="quote-modal-copy">
-            <strong id="quoteModalTitle">Quoted Message</strong>
-            <span id="quoteModalMeta">Forward details</span>
+        <header class="profile-modal-header">
+          <div class="profile-modal-identity">
+            <div class="avatar profile-modal-avatar" id="profileModalAvatar">Q</div>
+            <div class="profile-modal-copy">
+              <strong id="profileModalName">Profile</strong>
+              <span id="profileModalMeta">QQ</span>
+              <div id="profileModalTags" class="profile-modal-tags"></div>
+            </div>
           </div>
-          <button
-            id="quoteModalCloseBtn"
-            class="ghost-button icon-button"
-            type="button"
-            title="Close quote viewer"
-            aria-label="Close quote viewer"
-          >
-            ×
-          </button>
+          <div class="profile-modal-actions">
+            <button
+              id="profileModalRefreshBtn"
+              class="ghost-button icon-button"
+              type="button"
+              title="Refresh"
+              aria-label="Refresh"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M20 11a8 8 0 1 0 2.1 5.3"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+                <path
+                  d="M20 4v7h-7"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                ></path>
+              </svg>
+            </button>
+            <button
+              id="profileModalCloseBtn"
+              class="ghost-button icon-button"
+              type="button"
+              title="Close"
+              aria-label="Close"
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
         </header>
-        <div id="quoteModalBody" class="quote-modal-body"></div>
+        <div id="profileModalStatus" class="profile-modal-status is-hidden"></div>
+        <div id="profileModalBody" class="profile-modal-body"></div>
       </section>
     </div>
 
-    <script type="module" src="./app.js?v=20260623d"></script>
+    <div id="mediaPreviewModal" class="media-preview-modal is-hidden" aria-hidden="true">
+      <button
+        id="mediaPreviewBackdrop"
+        class="media-preview-backdrop"
+        type="button"
+        aria-label="Close media preview"
+      ></button>
+      <section
+        id="mediaPreviewCard"
+        class="media-preview-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mediaPreviewTitle"
+      >
+        <strong id="mediaPreviewTitle" class="media-preview-title">Preview</strong>
+        <button
+          id="mediaPreviewCloseBtn"
+          class="media-preview-close"
+          type="button"
+          title="Close"
+          aria-label="Close"
+        >
+          <span aria-hidden="true">x</span>
+        </button>
+        <div id="mediaPreviewBody" class="media-preview-body"></div>
+      </section>
+    </div>
+
+    <script type="module" src="./app.js"></script>
   </body>
 </html>

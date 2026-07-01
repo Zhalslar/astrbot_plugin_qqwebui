@@ -5,12 +5,6 @@
     "type": "int",
     "default": 200
   },
-  "global_message_limit": {
-    "description": "Global recent message cache size",
-    "hint": "Older cached messages are evicted first when the limit is reached.",
-    "type": "int",
-    "default": 5000
-  },
   "contact_ttl": {
     "description": "Friend and group metadata cache TTL in seconds",
     "hint": "Used to avoid repeated OneBot refresh calls.",
@@ -22,5 +16,11 @@
     "hint": "Lower values refresh faster but cost more OneBot calls.",
     "type": "int",
     "default": 120
+  },
+  "max_media_size": {
+    "description": "Maximum uploaded media size in bytes",
+    "hint": "Default is 15 MB. Increase carefully to avoid memory and storage pressure.",
+    "type": "int",
+    "default": 15728640
   }
 }

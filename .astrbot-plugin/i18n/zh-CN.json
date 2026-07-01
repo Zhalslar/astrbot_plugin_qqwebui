@@ -12,6 +12,8 @@
         "show_contacts": "显示联系人",
         "more_chat_actions": "更多会话操作",
         "upload_attachment": "上传附件",
+        "emoji": "表情",
+        "close_media_preview": "关闭媒体预览",
         "close_quote_viewer": "关闭转发查看器"
       },
       "sessions": {
@@ -31,7 +33,15 @@
       },
       "composer": {
         "placeholder": "向当前会话发送消息",
-        "send": "发送"
+        "send": "发送",
+        "mention_all": "全体",
+        "mention_all_hint": "At 全体成员",
+        "replying_to": "正在回复",
+        "cancel_reply": "取消回复",
+        "face_title": "QQ 表情",
+        "face_loading": "正在加载表情...",
+        "face_empty": "暂无可用表情。",
+        "face_load_failed": "加载表情失败。"
       },
       "members": {
         "panel_title": "群成员",
@@ -44,10 +54,86 @@
           "member": "成员"
         }
       },
+      "profile": {
+        "title": "用户资料",
+        "friend": "好友",
+        "close": "关闭",
+        "refresh": "刷新",
+        "refreshing": "刷新中...",
+        "loading": "正在加载缓存资料...",
+        "empty": "刷新后将在这里显示资料详情。",
+        "load_failed": "加载缓存资料失败。",
+        "refresh_failed": "刷新资料失败。",
+        "sections": {
+          "basic": "基础资料",
+          "qq": "QQ资料",
+          "group": "群资料"
+        },
+        "boolean": {
+          "yes": "是",
+          "no": "否"
+        },
+        "roles": {
+          "owner": "群主",
+          "admin": "管理员",
+          "member": "成员"
+        },
+        "sex": {
+          "male": "男",
+          "female": "女",
+          "unknown": "未知"
+        },
+        "fields": {
+          "display_name": "显示名",
+          "nickname": "昵称",
+          "remark": "备注",
+          "group_card": "群名片",
+          "qid": "QID",
+          "sex": "性别",
+          "age": "年龄",
+          "area": "地区",
+          "birthday": "生日",
+          "user_id": "QQ号",
+          "uid": "UID",
+          "qqLevel": "QQ等级",
+          "long_nick": "个性签名",
+          "reg_time": "注册时间",
+          "is_vip": "VIP",
+          "is_years_vip": "年费VIP",
+          "vip_level": "VIP等级",
+          "status": "状态",
+          "login_days": "登录天数",
+          "birthday_year": "出生年",
+          "birthday_month": "出生月",
+          "birthday_day": "出生日",
+          "kBloodType": "血型",
+          "phoneNum": "电话",
+          "eMail": "邮箱",
+          "homeTown": "家乡",
+          "country": "国家",
+          "province": "省份",
+          "city": "城市",
+          "address": "地址",
+          "makeFriendCareer": "职业",
+          "labels": "标签",
+          "group_id": "群号",
+          "card": "名片",
+          "join_time": "入群时间",
+          "last_sent_time": "最后发言",
+          "level": "等级",
+          "role": "角色",
+          "unfriendly": "风险账号",
+          "is_robot": "机器人账号",
+          "title": "头衔",
+          "title_expire_time": "头衔到期",
+          "card_changeable": "可改名片"
+        }
+      },
       "messages": {
         "select_session": "请先从左侧选择一个会话。",
         "empty_session": "当前会话暂无缓存消息。",
         "reply": "回复",
+        "reply_jump": "跳转到消息",
         "unknown_user": "未知用户",
         "empty_message": "[空消息]"
       },
