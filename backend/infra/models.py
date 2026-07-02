@@ -341,6 +341,8 @@ class SessionPreview:
     read_mid: str = ""
     unread: int = 0
     muted: bool = False
+    pin: bool = False
+    pin_at: int = 0
     kind: str = "message"
     summary: str = ""
     time: int = 0
@@ -360,6 +362,8 @@ class SessionPreview:
             "read_mid": self.read_mid,
             "unread": self.unread,
             "muted": self.muted,
+            "pin": self.pin,
+            "pin_at": self.pin_at,
             "kind": self.kind,
             "summary": self.summary,
             "time": self.time,
@@ -376,6 +380,8 @@ class SessionPreview:
             read_mid=str(data.get("read_mid", "")),
             unread=int(data.get("unread", 0) or 0),
             muted=bool(data.get("muted", False)),
+            pin=bool(data.get("pin", False)),
+            pin_at=int(data.get("pin_at", 0) or 0),
             kind=str(data.get("kind", "message") or "message"),
             summary=str(data.get("summary", "")),
             time=int(data.get("time", 0) or 0),

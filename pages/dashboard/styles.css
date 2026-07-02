@@ -473,7 +473,7 @@ textarea {
 }
 
 .session-item .session-main {
-  padding-right: 68px;
+  padding-right: 60px;
 }
 
 .session-main strong,
@@ -501,7 +501,7 @@ textarea {
   position: absolute;
   top: 8px;
   right: 10px;
-  min-width: 48px;
+  min-width: 52px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -510,6 +510,71 @@ textarea {
   color: var(--muted);
   font-size: 0.75rem;
   text-align: right;
+}
+
+.session-actions {
+  position: absolute;
+  top: 7px;
+  right: 38px;
+  bottom: 7px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: auto;
+}
+
+.session-action-button {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: auto;
+  box-shadow: 0 6px 16px rgba(73, 48, 26, 0.1);
+  transition: opacity 100ms ease 220ms, transform 120ms ease, color 120ms ease,
+    background 120ms ease;
+}
+
+.session-actions:hover .session-action-button,
+.session-actions:focus-within .session-action-button {
+  opacity: 1;
+  transition: opacity 100ms ease 0ms, transform 120ms ease, color 120ms ease,
+    background 120ms ease;
+}
+
+.session-action-button:hover {
+  transform: translateY(-1px);
+}
+
+.session-action-button:disabled {
+  cursor: default;
+  transform: none;
+}
+
+.session-action-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.session-action-button.is-pending {
+  animation: session-state-pulse 620ms ease-in-out infinite alternate;
+}
+
+.session-action-pin.is-active,
+.session-action-pin:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.session-action-delete:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
 }
 
 .badge,
@@ -807,6 +872,10 @@ textarea {
 
 .bubble-corner-badge.role-member {
   background: linear-gradient(135deg, #7f8790 0%, #9ca3ab 100%);
+}
+
+.bubble-corner-badge.role-title {
+  background: linear-gradient(135deg, #7650c9 0%, #a878e8 100%);
 }
 
 .bubble-text {
@@ -1785,6 +1854,16 @@ textarea {
 .profile-tag.is-warm {
   background: var(--tag-warm-bg);
   color: var(--tag-warm-text);
+}
+
+.profile-tag.is-title {
+  background: rgba(128, 86, 214, 0.16);
+  color: #7650c9;
+}
+
+html[data-theme="dark"] .profile-tag.is-title {
+  background: rgba(174, 132, 232, 0.2);
+  color: #d8c3ff;
 }
 
 .profile-modal-actions {

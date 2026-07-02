@@ -337,11 +337,15 @@ function renderProfileModal() {
   if (user?.is_friend) {
     els.profileModalTags.append(buildTag(t("pages.dashboard.profile.friend", "Friend"), "accent"));
   }
-  if (text(member?.role).trim()) {
-    els.profileModalTags.append(buildTag(roleLabel(member.role), "muted"));
+  const memberRole = text(member?.role).trim().toLowerCase();
+  const memberTitle = text(member?.title).trim();
+  if (memberRole === "member" && memberTitle) {
+    els.profileModalTags.append(buildTag(memberTitle, "title"));
+  } else if (memberRole) {
+    els.profileModalTags.append(buildTag(roleLabel(memberRole), "muted"));
   }
-  if (text(member?.title).trim()) {
-    els.profileModalTags.append(buildTag(text(member.title).trim(), "warm"));
+  if (memberRole !== "member" && memberTitle) {
+    els.profileModalTags.append(buildTag(memberTitle, "title"));
   }
   els.profileModalRefreshBtn.disabled =
     state.profileModalRefreshing || state.profileModalLoading;

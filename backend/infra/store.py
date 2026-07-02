@@ -84,6 +84,8 @@ class SessionCache:
         read_mid = current.read_mid if current else ""
         unread = current.unread if current else 0
         muted = current.muted if current else False
+        pin = current.pin if current else False
+        pin_at = current.pin_at if current else 0
         member_count = current.member_count if current else None
         sender_name = message.sender.card or message.sender.nickname or message.user_id
         self._sessions[message.session_id] = SessionPreview(
@@ -94,6 +96,8 @@ class SessionCache:
             read_mid=read_mid,
             unread=unread,
             muted=muted,
+            pin=pin,
+            pin_at=pin_at,
             kind="message",
             summary=message.summary,
             time=message.time,
@@ -125,6 +129,36 @@ class SessionCache:
         session.muted = muted
         return session
 
+    def set_pin(self, session_id: str, pin: bool) -> SessionPreview | None:
+        """Set the pinned state for a cached session.
+
+        Args:
+            session_id: Session identifier such as ``group:123``.
+            pin: Whether the session should be pinned.
+
+        Returns:
+            The updated session preview, or None when the session does not exist.
+        """
+
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        session.pin = pin
+        session.pin_at = int(time()) if pin else 0
+        return session
+
+    def delete(self, session_id: str) -> SessionPreview | None:
+        """Remove a cached session.
+
+        Args:
+            session_id: Session identifier to remove.
+
+        Returns:
+            The removed session preview, or None when it does not exist.
+        """
+
+        return self._sessions.pop(session_id, None)
+
     def list_sorted(
         self,
         *,
@@ -142,7 +176,15 @@ class SessionCache:
                 for row in rows
                 if lowered in row.title.lower() or lowered in row.target_id.lower()
             ]
-        rows.sort(key=lambda row: (row.time, row.session_id), reverse=True)
+        rows.sort(
+            key=lambda row: (
+                row.pin,
+                row.pin_at if row.pin else 0,
+                row.time,
+                row.session_id,
+            ),
+            reverse=True,
+        )
         return rows[:limit]
 
     def get(self, session_id: str) -> SessionPreview | None:

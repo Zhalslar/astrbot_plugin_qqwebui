@@ -50,6 +50,13 @@ class PageController:
             ("/page/events", self.page_events, ["GET"], "SSE updates"),
             ("/page/view", self.page_view, ["POST"], "sync session view"),
             ("/page/session/mute", self.page_session_mute, ["POST"], "mute session"),
+            ("/page/session/pin", self.page_session_pin, ["POST"], "pin session"),
+            (
+                "/page/session/delete",
+                self.page_session_delete,
+                ["POST"],
+                "delete session",
+            ),
             ("/page/contacts", self.page_contacts, ["GET"], "contacts"),
             ("/page/contacts/refresh", self.page_contacts_refresh, ["POST"], "..."),
             (
@@ -155,6 +162,29 @@ class PageController:
             return self._error(str(exc), 400)
         except Exception as exc:
             logger.exception("[qqwebui] page_session_mute failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_session_pin(self):
+        try:
+            payload = await request.json(default={}) or {}
+            session_id = str(payload.get("session_id", "")).strip()
+            pin = bool(payload.get("pin", False))
+            return self._ok(await self.sessions.set_session_pin(session_id, pin))
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_session_pin failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_session_delete(self):
+        try:
+            payload = await request.json(default={}) or {}
+            session_id = str(payload.get("session_id", "")).strip()
+            return self._ok(await self.sessions.delete_session(session_id))
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_session_delete failed: %s", exc)
             return self._error(str(exc), 500)
 
     async def page_contacts(self):

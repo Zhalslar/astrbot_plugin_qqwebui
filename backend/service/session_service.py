@@ -78,6 +78,19 @@ class SessionService:
         }
 
     async def set_session_muted(self, session_id: str, muted: bool) -> dict[str, Any]:
+        """Set a session's muted state.
+
+        Args:
+            session_id: Session identifier to update.
+            muted: Whether the session should be muted.
+
+        Returns:
+            The updated session payload.
+
+        Raises:
+            ValueError: If the session id is empty or unknown.
+        """
+
         if not session_id:
             raise ValueError("session_id is required")
         session = self.store.sessions.set_muted(session_id, muted)
@@ -89,6 +102,62 @@ class SessionService:
             last_active_session_id=self.store.last_active_session_id,
         )
         return {"session": session.to_dict()}
+
+    async def set_session_pin(self, session_id: str, pin: bool) -> dict[str, Any]:
+        """Set a session's pinned state.
+
+        Args:
+            session_id: Session identifier to update.
+            pin: Whether the session should be pinned.
+
+        Returns:
+            The updated session payload.
+
+        Raises:
+            ValueError: If the session id is empty or unknown.
+        """
+
+        if not session_id:
+            raise ValueError("session_id is required")
+        session = self.store.sessions.set_pin(session_id, pin)
+        if session is None:
+            raise ValueError("session not found")
+        self.store.persist()
+        self.sse.publish_session(
+            session=session.to_dict(),
+            last_active_session_id=self.store.last_active_session_id,
+        )
+        return {"session": session.to_dict()}
+
+    async def delete_session(self, session_id: str) -> dict[str, Any]:
+        """Delete a cached session and its messages.
+
+        Args:
+            session_id: Session identifier to delete.
+
+        Returns:
+            The deleted session id payload.
+
+        Raises:
+            ValueError: If the session id is empty.
+        """
+
+        if not session_id:
+            raise ValueError("session_id is required")
+        self.store.sessions.delete(session_id)
+        self.store.messages.clear_session(session_id)
+        if self.store.last_active_session_id == session_id:
+            self.store.last_active_session_id = ""
+        if self.store.view_session_id == session_id:
+            self.store.view_session_id = ""
+            self.store.view_at_bottom = False
+        self.store.persist()
+        payload = {"session_id": session_id, "deleted": True}
+        self.sse.publish_session(
+            session=payload,
+            last_active_session_id=self.store.last_active_session_id,
+        )
+        return payload
 
     def cache_message(self, event: MessageEvent) -> None:
         message = event.to_message_record()

@@ -33,8 +33,10 @@ function areSessionListsEqual(left, right) {
       leftItem.sender_name !== rightItem.sender_name ||
       leftItem.message_type !== rightItem.message_type ||
       leftItem.muted !== rightItem.muted ||
+      Boolean(leftItem.pin) !== Boolean(rightItem.pin) ||
       leftItem.summary !== rightItem.summary ||
       leftItem.time !== rightItem.time ||
+      Number(leftItem.pin_at || 0) !== Number(rightItem.pin_at || 0) ||
       leftItem.read_mid !== rightItem.read_mid ||
       Number(leftItem.unread || 0) !== Number(rightItem.unread || 0) ||
       Number(leftItem.member_count ?? -1) !== Number(rightItem.member_count ?? -1)
@@ -83,6 +85,16 @@ function upsertSession(session) {
     next.push(session);
   }
   next.sort((left, right) => {
+    const pinDiff = Number(Boolean(right.pin)) - Number(Boolean(left.pin));
+    if (pinDiff !== 0) {
+      return pinDiff;
+    }
+    if (left.pin && right.pin) {
+      const pinTimeDiff = Number(right.pin_at || 0) - Number(left.pin_at || 0);
+      if (pinTimeDiff !== 0) {
+        return pinTimeDiff;
+      }
+    }
     const timeDiff = Number(right.time || 0) - Number(left.time || 0);
     if (timeDiff !== 0) {
       return timeDiff;
@@ -92,6 +104,27 @@ function upsertSession(session) {
   const changed = !areSessionListsEqual(state.sessions, next);
   state.sessions = next;
   if (changed && openSessionHandler) {
+    renderSessionList(openSessionHandler);
+  }
+  return changed;
+}
+
+function removeSession(sessionId) {
+  const cleanSessionId = text(sessionId).trim();
+  if (!cleanSessionId) {
+    return false;
+  }
+  const next = state.sessions.filter((item) => item.session_id !== cleanSessionId);
+  const changed = next.length !== state.sessions.length;
+  state.sessions = next;
+  state.messagesBySession.delete(cleanSessionId);
+  state.messagePrefetching.delete(cleanSessionId);
+  state.sessionMutePendingIds.delete(cleanSessionId);
+  state.sessionPinPendingIds.delete(cleanSessionId);
+  state.sessionDeletePendingIds.delete(cleanSessionId);
+  if (state.activeSessionId === cleanSessionId) {
+    resetActiveSessionView();
+  } else if (changed && openSessionHandler) {
     renderSessionList(openSessionHandler);
   }
   return changed;
@@ -184,6 +217,100 @@ export async function setSessionMuted(sessionId, muted) {
   }
 }
 
+export async function setSessionPinned(sessionId, pin) {
+  const cleanSessionId = text(sessionId).trim();
+  const nextPin = Boolean(pin);
+  const current = getSessionPreview(cleanSessionId);
+  if (!cleanSessionId || state.sessionPinPendingIds.has(cleanSessionId)) {
+    return current;
+  }
+
+  const previousPin = Boolean(current?.pin);
+  const previousPinAt = Number(current?.pin_at || 0);
+  state.sessionPinPendingIds.add(cleanSessionId);
+  if (current && previousPin !== nextPin) {
+    upsertSession({
+      ...current,
+      pin: nextPin,
+      pin_at: nextPin ? Math.floor(Date.now() / 1000) : 0,
+    });
+  } else if (openSessionHandler) {
+    renderSessionList(openSessionHandler);
+  }
+
+  try {
+    const data = await apiPost("page/session/pin", {
+      session_id: cleanSessionId,
+      pin: nextPin,
+    });
+    state.sessionPinPendingIds.delete(cleanSessionId);
+    if (data.session) {
+      const latest = getSessionPreview(cleanSessionId) || data.session;
+      const changed = upsertSession({
+        ...latest,
+        pin: Boolean(data.session.pin),
+        pin_at: Number(data.session.pin_at || 0),
+      });
+      if (!changed && openSessionHandler) {
+        renderSessionList(openSessionHandler);
+      }
+    } else if (openSessionHandler) {
+      renderSessionList(openSessionHandler);
+    }
+    return data.session || getSessionPreview(cleanSessionId);
+  } catch (error) {
+    state.sessionPinPendingIds.delete(cleanSessionId);
+    const latest = getSessionPreview(cleanSessionId);
+    if (latest) {
+      upsertSession({
+        ...latest,
+        pin: previousPin,
+        pin_at: previousPinAt,
+      });
+    } else if (openSessionHandler) {
+      renderSessionList(openSessionHandler);
+    }
+    throw error;
+  }
+}
+
+export async function deleteSession(sessionId) {
+  const cleanSessionId = text(sessionId).trim();
+  const current = getSessionPreview(cleanSessionId);
+  if (!cleanSessionId || !current || state.sessionDeletePendingIds.has(cleanSessionId)) {
+    return false;
+  }
+
+  const wasActive = state.activeSessionId === cleanSessionId;
+  const previousMessages = state.messagesBySession.get(cleanSessionId) || null;
+  state.sessionDeletePendingIds.add(cleanSessionId);
+  removeSession(cleanSessionId);
+
+  try {
+    await apiPost("page/session/delete", {
+      session_id: cleanSessionId,
+    });
+    state.sessionDeletePendingIds.delete(cleanSessionId);
+    return true;
+  } catch (error) {
+    state.sessionDeletePendingIds.delete(cleanSessionId);
+    if (previousMessages) {
+      state.messagesBySession.set(cleanSessionId, previousMessages);
+    }
+    upsertSession(current);
+    if (wasActive) {
+      state.activeSessionId = cleanSessionId;
+      renderMessages({ forceScrollToBottom: true });
+      void loadGroupMembers(false);
+      updateSendAvailability();
+      if (openSessionHandler) {
+        renderSessionList(openSessionHandler);
+      }
+    }
+    throw error;
+  }
+}
+
 export async function loadMessages(sessionId) {
   const data = await apiGet("page/messages", {
     session_id: sessionId,
@@ -203,6 +330,9 @@ export async function loadMessages(sessionId) {
 }
 
 export async function applyIncomingSession(session) {
+  if (session?.deleted) {
+    return removeSession(session.session_id);
+  }
   const changed = upsertSession(session);
   if (state.activeSessionId === session?.session_id) {
     renderMessages();

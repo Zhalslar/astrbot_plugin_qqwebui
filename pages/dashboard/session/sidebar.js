@@ -6,6 +6,8 @@ import { avatarUrl, formatTime, setAvatar, text } from "../core/utils.js";
 
 let sessionOpenHandler = null;
 let sessionMuteHandler = null;
+let sessionPinHandler = null;
+let sessionDeleteHandler = null;
 
 function sessionPreviewText(session) {
   const summary = text(session.summary).trim();
@@ -103,7 +105,7 @@ export function renderSessionList(openSession) {
     item.append(avatar, main, meta);
     item.className = `session-item${
       session.session_id === state.activeSessionId ? " active" : ""
-    }`;
+    }${session.pin ? " is-pinned" : ""}`;
 
     setAvatar(
       avatar,
@@ -156,6 +158,72 @@ export function renderSessionList(openSession) {
       meta.append(stateButton);
     }
 
+    const actions = document.createElement("div");
+    actions.className = "session-actions";
+
+    const pinButton = document.createElement("button");
+    const nextPinned = !Boolean(session.pin);
+    const pinPending = state.sessionPinPendingIds.has(session.session_id);
+    const pinLabel = session.pin
+      ? t("pages.dashboard.sessions.unpin", "Unpin session")
+      : t("pages.dashboard.sessions.pin", "Pin session");
+    pinButton.type = "button";
+    pinButton.tabIndex = -1;
+    pinButton.className = `session-action-button session-action-pin${
+      session.pin ? " is-active" : ""
+    }${pinPending ? " is-pending" : ""}`;
+    pinButton.disabled = pinPending;
+    pinButton.title = pinLabel;
+    pinButton.setAttribute("aria-label", pinLabel);
+    pinButton.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 3 7 7-3 1-4 4v4l-2 2-3.5-3.5L4 22l4.5-4.5L5 14l2-2h4l4-4 1-3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+    pinButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!sessionPinHandler) {
+        return;
+      }
+      try {
+        await sessionPinHandler(session.session_id, nextPinned);
+      } catch (error) {
+        setStatus(
+          error?.message ||
+            t("pages.dashboard.status.session_pin_failed", "Failed to update session.")
+        );
+      }
+    });
+
+    const deleteButton = document.createElement("button");
+    const deletePending = state.sessionDeletePendingIds.has(session.session_id);
+    const deleteLabel = t("pages.dashboard.sessions.delete", "Delete session");
+    deleteButton.type = "button";
+    deleteButton.tabIndex = -1;
+    deleteButton.className = `session-action-button session-action-delete${
+      deletePending ? " is-pending" : ""
+    }`;
+    deleteButton.disabled = deletePending;
+    deleteButton.title = deleteLabel;
+    deleteButton.setAttribute("aria-label", deleteLabel);
+    deleteButton.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+    deleteButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!sessionDeleteHandler) {
+        return;
+      }
+      try {
+        await sessionDeleteHandler(session.session_id);
+      } catch (error) {
+        setStatus(
+          error?.message ||
+            t("pages.dashboard.status.session_delete_failed", "Failed to delete session.")
+        );
+      }
+    });
+
+    actions.append(pinButton, deleteButton);
+    item.append(actions);
     els.sessionList.append(item);
   }
 }
@@ -165,9 +233,17 @@ export function bindSessionSidebarEvents({
   loadContacts,
   renderAll,
   setSessionMuted,
+  setSessionPinned,
+  deleteSession,
 }) {
   if (typeof setSessionMuted === "function") {
     sessionMuteHandler = setSessionMuted;
+  }
+  if (typeof setSessionPinned === "function") {
+    sessionPinHandler = setSessionPinned;
+  }
+  if (typeof deleteSession === "function") {
+    sessionDeleteHandler = deleteSession;
   }
   els.sessionSearchInput.addEventListener("input", async () => {
     state.searchKeyword = els.sessionSearchInput.value.trim();

@@ -18,7 +18,9 @@ import {
   loadSessions,
   openSession,
   resetActiveSessionView,
+  deleteSession,
   setSessionMuted,
+  setSessionPinned,
   setOpenSessionHandler,
 } from "./session/service.js";
 import { bindSessionSidebarEvents, renderSessionList } from "./session/sidebar.js";
@@ -42,6 +44,8 @@ function bindEvents() {
     loadContacts: (force) => loadContacts(openSession, force),
     renderAll: rerenderAll,
     setSessionMuted,
+    setSessionPinned,
+    deleteSession,
   });
   bindComposerEvents();
   bindRecorderEvents();

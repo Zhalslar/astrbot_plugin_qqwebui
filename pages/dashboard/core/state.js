@@ -8,6 +8,8 @@ export const state = {
   activeSessionId: "",
   messagesBySession: new Map(),
   sessionMutePendingIds: new Set(),
+  sessionPinPendingIds: new Set(),
+  sessionDeletePendingIds: new Set(),
   searchKeyword: "",
   showingContacts: false,
   pendingUploads: [],
