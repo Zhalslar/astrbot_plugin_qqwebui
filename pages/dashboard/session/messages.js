@@ -32,6 +32,7 @@ let mediaPreviewDragStartY = 0;
 let mediaPreviewDragOriginX = 0;
 let mediaPreviewDragOriginY = 0;
 const mediaRefreshPendingSessionIds = new Set();
+const mediaRefreshAttemptKeys = new Set();
 
 function activeSession() {
   return state.sessions.find((item) => item.session_id === state.activeSessionId) || null;
@@ -74,12 +75,14 @@ function bindDeferredMediaRefresh(mediaElement, sourceUrl, sessionId) {
   if (!cleanUrl || !cleanSessionId || isTokenMediaUrl(cleanUrl)) {
     return;
   }
+  const refreshKey = `${cleanSessionId}\n${cleanUrl}`;
   let refreshTriggered = false;
   const triggerRefresh = () => {
-    if (refreshTriggered) {
+    if (refreshTriggered || mediaRefreshAttemptKeys.has(refreshKey)) {
       return;
     }
     refreshTriggered = true;
+    mediaRefreshAttemptKeys.add(refreshKey);
     void refreshSessionMediaCache(cleanSessionId);
   };
   mediaElement.addEventListener("play", triggerRefresh, { once: true });

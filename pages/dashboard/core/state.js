@@ -7,6 +7,7 @@ export const state = {
   groupMembers: [],
   activeSessionId: "",
   messagesBySession: new Map(),
+  sessionMutePendingIds: new Set(),
   searchKeyword: "",
   showingContacts: false,
   pendingUploads: [],

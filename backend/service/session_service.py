@@ -77,6 +77,19 @@ class SessionService:
             "last_active_session_id": self.store.last_active_session_id,
         }
 
+    async def set_session_muted(self, session_id: str, muted: bool) -> dict[str, Any]:
+        if not session_id:
+            raise ValueError("session_id is required")
+        session = self.store.sessions.set_muted(session_id, muted)
+        if session is None:
+            raise ValueError("session not found")
+        self.store.persist()
+        self.sse.publish_session(
+            session=session.to_dict(),
+            last_active_session_id=self.store.last_active_session_id,
+        )
+        return {"session": session.to_dict()}
+
     def cache_message(self, event: MessageEvent) -> None:
         message = event.to_message_record()
         title = self._sync_event_profiles(event)

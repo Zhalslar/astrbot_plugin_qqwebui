@@ -512,13 +512,65 @@ textarea {
   text-align: right;
 }
 
-.badge {
+.badge,
+.session-state-button {
   min-width: 18px;
   padding: 2px 6px;
   border-radius: 999px;
   background: var(--danger);
   color: #fff;
   text-align: center;
+}
+
+.session-state-button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  border: none;
+  font: inherit;
+  line-height: 1;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease, background 120ms ease;
+}
+
+.session-state-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+}
+
+.session-state-button:disabled {
+  cursor: default;
+  transform: none;
+}
+
+.session-state-button.is-pending {
+  animation: session-state-pulse 620ms ease-in-out infinite alternate;
+}
+
+.session-state-button.is-muted {
+  width: 22px;
+  padding: 0;
+  background: var(--surface-inset);
+  color: var(--muted);
+}
+
+.session-state-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+@keyframes session-state-pulse {
+  from {
+    opacity: 0.68;
+    transform: scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .message-list {

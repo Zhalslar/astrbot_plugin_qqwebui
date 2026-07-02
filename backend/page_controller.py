@@ -49,6 +49,7 @@ class PageController:
             ("/page/messages", self.page_messages, ["GET"], "messages"),
             ("/page/events", self.page_events, ["GET"], "SSE updates"),
             ("/page/view", self.page_view, ["POST"], "sync session view"),
+            ("/page/session/mute", self.page_session_mute, ["POST"], "mute session"),
             ("/page/contacts", self.page_contacts, ["GET"], "contacts"),
             ("/page/contacts/refresh", self.page_contacts_refresh, ["POST"], "..."),
             (
@@ -142,6 +143,18 @@ class PageController:
             )
         except Exception as exc:
             logger.exception("[qqwebui] page_view failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_session_mute(self):
+        try:
+            payload = await request.json(default={}) or {}
+            session_id = str(payload.get("session_id", "")).strip()
+            muted = bool(payload.get("muted", False))
+            return self._ok(await self.sessions.set_session_muted(session_id, muted))
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_session_mute failed: %s", exc)
             return self._error(str(exc), 500)
 
     async def page_contacts(self):

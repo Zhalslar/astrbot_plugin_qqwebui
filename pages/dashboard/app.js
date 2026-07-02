@@ -18,6 +18,7 @@ import {
   loadSessions,
   openSession,
   resetActiveSessionView,
+  setSessionMuted,
   setOpenSessionHandler,
 } from "./session/service.js";
 import { bindSessionSidebarEvents, renderSessionList } from "./session/sidebar.js";
@@ -36,7 +37,12 @@ function rerenderAll() {
 
 function bindEvents() {
   bindMessageEvents();
-  bindSessionSidebarEvents({ loadSessions, loadContacts: (force) => loadContacts(openSession, force), renderAll: rerenderAll });
+  bindSessionSidebarEvents({
+    loadSessions,
+    loadContacts: (force) => loadContacts(openSession, force),
+    renderAll: rerenderAll,
+    setSessionMuted,
+  });
   bindComposerEvents();
   bindRecorderEvents();
   bindProfileModalEvents();

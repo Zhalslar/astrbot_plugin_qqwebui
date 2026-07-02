@@ -1,4 +1,4 @@
-import { apiGet } from "../core/api.js";
+import { apiGet, apiPost } from "../core/api.js";
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
 import { state } from "../core/state.js";
@@ -135,6 +135,53 @@ export async function loadSessions() {
     renderSessionList(openSessionHandler);
   }
   void prefetchRecentSessionMessages();
+}
+
+export async function setSessionMuted(sessionId, muted) {
+  const cleanSessionId = text(sessionId).trim();
+  const nextMuted = Boolean(muted);
+  const current = getSessionPreview(cleanSessionId);
+  if (!cleanSessionId || state.sessionMutePendingIds.has(cleanSessionId)) {
+    return current;
+  }
+
+  const previousMuted = Boolean(current?.muted);
+  state.sessionMutePendingIds.add(cleanSessionId);
+  if (current && previousMuted !== nextMuted) {
+    upsertSession({ ...current, muted: nextMuted });
+  } else if (openSessionHandler) {
+    renderSessionList(openSessionHandler);
+  }
+
+  try {
+    const data = await apiPost("page/session/mute", {
+      session_id: cleanSessionId,
+      muted: nextMuted,
+    });
+    state.sessionMutePendingIds.delete(cleanSessionId);
+    if (data.session) {
+      const latest = getSessionPreview(cleanSessionId) || data.session;
+      const changed = upsertSession({
+        ...latest,
+        muted: Boolean(data.session.muted),
+      });
+      if (!changed && openSessionHandler) {
+        renderSessionList(openSessionHandler);
+      }
+    } else if (openSessionHandler) {
+      renderSessionList(openSessionHandler);
+    }
+    return data.session || getSessionPreview(cleanSessionId);
+  } catch (error) {
+    state.sessionMutePendingIds.delete(cleanSessionId);
+    const latest = getSessionPreview(cleanSessionId);
+    if (latest) {
+      upsertSession({ ...latest, muted: previousMuted });
+    } else if (openSessionHandler) {
+      renderSessionList(openSessionHandler);
+    }
+    throw error;
+  }
 }
 
 export async function loadMessages(sessionId) {

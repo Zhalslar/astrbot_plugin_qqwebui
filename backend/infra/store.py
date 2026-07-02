@@ -85,9 +85,7 @@ class SessionCache:
         unread = current.unread if current else 0
         muted = current.muted if current else False
         member_count = current.member_count if current else None
-        sender_name = (
-            message.sender.card or message.sender.nickname or message.user_id
-        )
+        sender_name = message.sender.card or message.sender.nickname or message.user_id
         self._sessions[message.session_id] = SessionPreview(
             session_id=message.session_id,
             message_type=message.message_type,
@@ -118,6 +116,13 @@ class SessionCache:
             return None
         session.read_mid = read_mid
         session.unread = 0
+        return session
+
+    def set_muted(self, session_id: str, muted: bool) -> SessionPreview | None:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        session.muted = muted
         return session
 
     def list_sorted(
@@ -353,9 +358,7 @@ class MediaTokenCache:
             if entry.get("token") != normalized_token
             and entry.get("file_path") != normalized_path
         ]
-        self.entries.append(
-            {"token": normalized_token, "file_path": normalized_path}
-        )
+        self.entries.append({"token": normalized_token, "file_path": normalized_path})
 
     def prune_missing_files(self) -> None:
         self.entries = [
