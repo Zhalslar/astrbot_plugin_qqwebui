@@ -724,8 +724,8 @@ textarea {
   position: absolute;
   top: 8px;
   right: -12px;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   z-index: 1;
   display: inline-grid;
   place-items: center;
@@ -735,34 +735,19 @@ textarea {
   background: color-mix(in srgb, var(--surface-strong) 72%, transparent);
   color: var(--muted);
   opacity: 0;
-  pointer-events: none;
+  pointer-events: auto;
   cursor: pointer;
   transition:
+    opacity 100ms ease 180ms,
     color 120ms ease,
     background 120ms ease,
     transform 120ms ease;
 }
 
-.bubble:hover + .message-reply-action,
 .message-reply-action:hover,
 .message-reply-action:focus-visible {
-  animation: message-reply-fade-in 120ms ease 320ms forwards;
-  pointer-events: auto;
-}
-
-.message-reply-action:hover,
-.message-reply-action:focus-visible {
+  transition-delay: 0ms;
   opacity: 0.82;
-}
-
-@keyframes message-reply-fade-in {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 0.82;
-  }
 }
 
 .message-reply-action:hover,
@@ -779,8 +764,8 @@ textarea {
 }
 
 .message-reply-action svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 
 @keyframes message-enter {

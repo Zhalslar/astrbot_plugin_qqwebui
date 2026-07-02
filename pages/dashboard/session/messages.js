@@ -395,7 +395,7 @@ function buildReplyAction(item) {
   button.title = t("pages.dashboard.messages.reply", "Reply");
   button.setAttribute("aria-label", button.title);
   button.innerHTML =
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 8 4 12l6 4v-3h4a6 6 0 0 1 6 6v1a9 9 0 0 0-9-9h-1V8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 16.5c1.8-1.2 2.8-2.8 2.8-4.8V7.5H4.8v5h2.8c-.2 1.1-.9 2-2 2.8l1.6 1.2ZM15.8 16.5c1.8-1.2 2.8-2.8 2.8-4.8V7.5h-5.2v5h2.8c-.2 1.1-.9 2-2 2.8l1.6 1.2Z" fill="currentColor"></path></svg>';
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
