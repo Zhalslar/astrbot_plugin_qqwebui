@@ -16,6 +16,11 @@
         "close_media_preview": "Close media preview",
         "close_quote_viewer": "Close quote viewer"
       },
+      "left_tabs": {
+        "sessions": "Recent sessions",
+        "friends": "Friends",
+        "groups": "Groups"
+      },
       "sessions": {
         "title": "Recent sessions",
         "search_placeholder": "Group name / QQ",
@@ -25,6 +30,8 @@
       "contacts": {
         "title": "Contacts",
         "search_placeholder": "Friend / group / QQ",
+        "search_friends_placeholder": "Friend / QQ",
+        "search_groups_placeholder": "Group / QQ",
         "empty": "Contacts will appear after refresh.",
         "types": {
           "group": "Group",

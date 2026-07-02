@@ -9,6 +9,22 @@ let sessionMuteHandler = null;
 let sessionPinHandler = null;
 let sessionDeleteHandler = null;
 
+function renderLeftListTabs() {
+  for (const button of els.leftListTabs.querySelectorAll(".left-list-tab")) {
+    const mode = text(button.dataset.mode).trim();
+    const active = mode === state.leftListMode;
+    if (mode === "sessions") {
+      button.textContent = t("pages.dashboard.left_tabs.sessions");
+    } else if (mode === "friends") {
+      button.textContent = t("pages.dashboard.left_tabs.friends");
+    } else if (mode === "groups") {
+      button.textContent = t("pages.dashboard.left_tabs.groups");
+    }
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  }
+}
+
 function sessionPreviewText(session) {
   const summary = text(session.summary).trim();
   if (!summary) {
@@ -31,6 +47,7 @@ export function renderSessionList(openSession) {
   if (typeof openSession === "function") {
     sessionOpenHandler = openSession;
   }
+  renderLeftListTabs();
   const sessions = [];
   const seenSessionIds = new Set();
   for (const session of state.sessions) {
@@ -41,13 +58,12 @@ export function renderSessionList(openSession) {
     seenSessionIds.add(sessionId);
     sessions.push(session);
   }
-  const visible = !state.showingContacts;
+  const visible = state.leftListMode === "sessions";
   els.sessionList.classList.toggle("is-hidden", !visible);
   els.contactList.classList.toggle("is-hidden", visible);
   if (!visible) {
     return;
   }
-  els.leftListTitle.textContent = t("pages.dashboard.sessions.title", "Recent sessions");
   els.leftListCount.textContent = String(sessions.length);
   els.sessionSearchInput.placeholder = t(
     "pages.dashboard.sessions.search_placeholder",
@@ -247,12 +263,29 @@ export function bindSessionSidebarEvents({
   }
   els.sessionSearchInput.addEventListener("input", async () => {
     state.searchKeyword = els.sessionSearchInput.value.trim();
-    await loadSessions();
-    await loadContacts(false);
+    if (state.leftListMode === "sessions") {
+      await loadSessions();
+    } else {
+      await loadContacts(false);
+    }
   });
 
-  els.toggleContactsBtn.addEventListener("click", () => {
-    state.showingContacts = !state.showingContacts;
+  els.leftListTabs.addEventListener("click", async (event) => {
+    const button = event.target.closest(".left-list-tab");
+    if (!button) {
+      return;
+    }
+    const mode = text(button.dataset.mode).trim();
+    if (!["sessions", "friends", "groups"].includes(mode) || state.leftListMode === mode) {
+      return;
+    }
+    state.leftListMode = mode;
+    renderLeftListTabs();
     renderAll();
+    if (mode === "sessions") {
+      await loadSessions();
+    } else {
+      await loadContacts(true);
+    }
   });
 }

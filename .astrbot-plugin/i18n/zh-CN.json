@@ -16,6 +16,11 @@
         "close_media_preview": "关闭媒体预览",
         "close_quote_viewer": "关闭转发查看器"
       },
+      "left_tabs": {
+        "sessions": "最近会话",
+        "friends": "好友",
+        "groups": "群聊"
+      },
       "sessions": {
         "title": "最近会话",
         "search_placeholder": "群名 / QQ",
@@ -25,6 +30,8 @@
       "contacts": {
         "title": "联系人",
         "search_placeholder": "好友 / 群聊 / QQ",
+        "search_friends_placeholder": "好友 / QQ",
+        "search_groups_placeholder": "群聊 / QQ",
         "empty": "刷新后会显示联系人。",
         "types": {
           "group": "群聊",

@@ -50,6 +50,7 @@ class ContactService:
             user.is_friend = False
         for f in friends:
             friend = UserProfile.from_dict(dict(f))
+            friend.is_friend = True
             self.store.contacts.upsert_user(friend)
 
     async def refresh_groups(self):

@@ -8,8 +8,9 @@ export async function loadContacts(openSession, force = false) {
   if (force) {
     await apiPost("page/contacts/refresh", { force: true });
   }
+  const scope = state.leftListMode === "groups" ? "groups" : "friends";
   const data = await apiGet("page/contacts", {
-    scope: "all",
+    scope,
     keyword: state.searchKeyword,
   });
   state.contacts = Array.isArray(data.items) ? data.items : [];

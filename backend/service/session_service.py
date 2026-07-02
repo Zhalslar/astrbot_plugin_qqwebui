@@ -78,19 +78,6 @@ class SessionService:
         }
 
     async def set_session_muted(self, session_id: str, muted: bool) -> dict[str, Any]:
-        """Set a session's muted state.
-
-        Args:
-            session_id: Session identifier to update.
-            muted: Whether the session should be muted.
-
-        Returns:
-            The updated session payload.
-
-        Raises:
-            ValueError: If the session id is empty or unknown.
-        """
-
         if not session_id:
             raise ValueError("session_id is required")
         session = self.store.sessions.set_muted(session_id, muted)
@@ -104,19 +91,6 @@ class SessionService:
         return {"session": session.to_dict()}
 
     async def set_session_pin(self, session_id: str, pin: bool) -> dict[str, Any]:
-        """Set a session's pinned state.
-
-        Args:
-            session_id: Session identifier to update.
-            pin: Whether the session should be pinned.
-
-        Returns:
-            The updated session payload.
-
-        Raises:
-            ValueError: If the session id is empty or unknown.
-        """
-
         if not session_id:
             raise ValueError("session_id is required")
         session = self.store.sessions.set_pin(session_id, pin)
@@ -130,18 +104,6 @@ class SessionService:
         return {"session": session.to_dict()}
 
     async def delete_session(self, session_id: str) -> dict[str, Any]:
-        """Delete a cached session and its messages.
-
-        Args:
-            session_id: Session identifier to delete.
-
-        Returns:
-            The deleted session id payload.
-
-        Raises:
-            ValueError: If the session id is empty.
-        """
-
         if not session_id:
             raise ValueError("session_id is required")
         self.store.sessions.delete(session_id)

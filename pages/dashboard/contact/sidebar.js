@@ -10,18 +10,30 @@ export function renderContactList(openSession) {
   if (typeof openSession === "function") {
     contactOpenHandler = openSession;
   }
-  const visible = state.showingContacts;
+  for (const button of els.leftListTabs.querySelectorAll(".left-list-tab")) {
+    const mode = text(button.dataset.mode).trim();
+    const active = mode === state.leftListMode;
+    if (mode === "sessions") {
+      button.textContent = t("pages.dashboard.left_tabs.sessions");
+    } else if (mode === "friends") {
+      button.textContent = t("pages.dashboard.left_tabs.friends");
+    } else if (mode === "groups") {
+      button.textContent = t("pages.dashboard.left_tabs.groups");
+    }
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  }
+  const visible = state.leftListMode === "friends" || state.leftListMode === "groups";
   els.sessionList.classList.toggle("is-hidden", visible);
   els.contactList.classList.toggle("is-hidden", !visible);
   if (!visible) {
     return;
   }
-  els.leftListTitle.textContent = t("pages.dashboard.contacts.title", "Contacts");
   els.leftListCount.textContent = String(state.contacts.length);
-  els.sessionSearchInput.placeholder = t(
-    "pages.dashboard.contacts.search_placeholder",
-    "Friend / group / QQ"
-  );
+  els.sessionSearchInput.placeholder =
+    state.leftListMode === "groups"
+      ? t("pages.dashboard.contacts.search_groups_placeholder", "Group / QQ")
+      : t("pages.dashboard.contacts.search_friends_placeholder", "Friend / QQ");
   if (!state.contacts.length) {
     els.contactList.className = "contact-list empty-state";
     els.contactList.textContent = t(
@@ -32,7 +44,7 @@ export function renderContactList(openSession) {
   }
   els.contactList.className = "contact-list";
   els.contactList.replaceChildren();
-  for (const contact of state.contacts.slice(0, 30)) {
+  for (const contact of state.contacts) {
     const row = document.createElement("div");
     row.className = "contact-item";
     row.addEventListener("click", () => {

@@ -19,6 +19,7 @@ import { renderSessionList } from "./sidebar.js";
 
 const MESSAGE_BOTTOM_THRESHOLD = 24;
 const MESSAGE_EXIT_CURSOR_THRESHOLD = 8;
+const MESSAGE_TIME_DIVIDER_THRESHOLD = 120;
 let mediaPreviewOpen = false;
 let mediaPreviewType = "";
 let mediaPreviewImageScale = 1;
@@ -233,8 +234,14 @@ function updateMessageJumpButton() {
   const exitIndex = items.findIndex(
     (item) => text(item.message_id).trim() === exitCursorMessageId
   );
-  const toExitCount =
-    currentIndex >= 0 && exitIndex >= 0 ? Math.abs(currentIndex - exitIndex) : 0;
+  let toExitCount = 0;
+  if (currentIndex >= 0 && exitIndex >= 0) {
+    if (currentIndex > exitIndex) {
+      toExitCount = currentIndex - exitIndex;
+    } else {
+      state.messageExitCursorBySession.delete(state.activeSessionId);
+    }
+  }
 
   els.messageJumpToUnreadBtn.classList.toggle(
     "is-hidden",
@@ -386,6 +393,35 @@ function formatReplyTime(timestamp) {
     return `${hours}:${minutes}`;
   }
   return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${hours}:${minutes}`;
+}
+
+function formatMessageTimeDivider(timestamp) {
+  const value = Number(timestamp || 0);
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const now = new Date();
+  const pad = (part) => String(part).padStart(2, "0");
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  return isToday
+    ? `${hours}:${minutes}`
+    : `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${hours}:${minutes}`;
+}
+
+function buildMessageNotice(textContent) {
+  const notice = document.createElement("div");
+  notice.className = "message-notice";
+  notice.textContent = text(textContent).trim();
+  return notice;
 }
 
 function buildReplyAction(item) {
@@ -846,7 +882,20 @@ export function renderMessages(options = {}) {
   els.messageListContent.className = "message-list-content";
   els.messageListContent.dataset.sessionId = state.activeSessionId;
   els.messageListContent.replaceChildren();
+  let previousMessageTime = 0;
   for (const [index, item] of items.entries()) {
+    const messageTime = Number(item.time || 0);
+    if (
+      messageTime > 0 &&
+      (index === 0 || messageTime - previousMessageTime >= MESSAGE_TIME_DIVIDER_THRESHOLD)
+    ) {
+      const dividerText = formatMessageTimeDivider(messageTime);
+      if (dividerText) {
+        els.messageListContent.append(buildMessageNotice(dividerText));
+      }
+    }
+    previousMessageTime = messageTime || previousMessageTime;
+
     const row = document.createElement("article");
     row.className = `message-item${item.is_self ? " self" : ""}`;
     if (shouldAnimateIncoming && index === items.length - 1) {

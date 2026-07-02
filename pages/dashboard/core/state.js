@@ -11,7 +11,7 @@ export const state = {
   sessionPinPendingIds: new Set(),
   sessionDeletePendingIds: new Set(),
   searchKeyword: "",
-  showingContacts: false,
+  leftListMode: "sessions",
   pendingUploads: [],
   composerMentionActive: false,
   composerMentionQuery: "",
