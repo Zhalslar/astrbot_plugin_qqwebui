@@ -21,6 +21,7 @@ export async function loadGroupMembers(force = false) {
   const session = state.sessions.find((item) => item.session_id === state.activeSessionId);
   if (!session || session.message_type !== "group") {
     state.groupMembers = [];
+    state.groupMemberByUserId = new Map();
     renderGroupMembers();
     return;
   }
@@ -31,6 +32,9 @@ export async function loadGroupMembers(force = false) {
   const items = Array.isArray(data.items) ? data.items : [];
   const changed = JSON.stringify(state.groupMembers) !== JSON.stringify(items);
   state.groupMembers = items;
+  state.groupMemberByUserId = new Map(
+    items.map((item) => [String(item.user_id ?? "").trim(), item]).filter(([userId]) => userId)
+  );
   if (changed || force) {
     renderGroupMembers();
     if (state.activeSessionId === session.session_id) {

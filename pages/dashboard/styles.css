@@ -766,6 +766,15 @@ textarea {
   flex-direction: row-reverse;
 }
 
+.message-item .avatar.is-pokable {
+  cursor: pointer;
+}
+
+.message-item .avatar.is-poke-shaking {
+  transform-origin: 50% 100%;
+  animation: avatar-poke-shake 420ms ease;
+}
+
 .message-notice {
   align-self: center;
   max-width: min(76%, 420px);
@@ -774,6 +783,32 @@ textarea {
   font-size: 0.76rem;
   line-height: 1.4;
   text-align: center;
+}
+
+.message-notice-user {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  color: #2275d7;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.message-notice-user:hover,
+.message-notice-user:focus-visible {
+  color: #145fb6;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+html[data-theme="dark"] .message-notice-user {
+  color: #77bdf2;
+}
+
+html[data-theme="dark"] .message-notice-user:hover,
+html[data-theme="dark"] .message-notice-user:focus-visible {
+  color: #a3d7ff;
 }
 
 .message-reply-action {
@@ -2105,6 +2140,32 @@ html[data-theme="dark"] .profile-tag.is-title {
 
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes avatar-poke-shake {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  18% {
+    transform: rotate(-8deg);
+  }
+
+  36% {
+    transform: rotate(7deg);
+  }
+
+  56% {
+    transform: rotate(-5deg);
+  }
+
+  76% {
+    transform: rotate(3deg);
+  }
+
+  100% {
+    transform: rotate(0deg);
   }
 }
 

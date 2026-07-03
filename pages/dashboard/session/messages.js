@@ -2,6 +2,7 @@ import { apiGet, apiPost } from "../core/api.js";
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
 import { renderMarkdownFragment } from "../core/markdown.js";
+import { setStatus } from "../core/status.js";
 import {
   hasRenderableSegmentBody,
   isAudioSegment,
@@ -15,11 +16,13 @@ import { state } from "../core/state.js";
 import { avatarUrl, clampText, setAvatar, text } from "../core/utils.js";
 import { buildGroupBadge, findGroupMember } from "../contact/members.js";
 import { focusComposer, setComposerReplyTarget } from "../chat/composer.js";
+import { openProfileModal } from "../profile/modal.js";
 import { renderSessionList } from "./sidebar.js";
 
 const MESSAGE_BOTTOM_THRESHOLD = 24;
 const MESSAGE_EXIT_CURSOR_THRESHOLD = 8;
 const MESSAGE_TIME_DIVIDER_THRESHOLD = 120;
+const MESSAGE_PAGE_LIMIT = 50;
 let mediaPreviewOpen = false;
 let mediaPreviewType = "";
 let mediaPreviewImageScale = 1;
@@ -34,6 +37,7 @@ let mediaPreviewDragOriginX = 0;
 let mediaPreviewDragOriginY = 0;
 const mediaRefreshPendingSessionIds = new Set();
 const mediaRefreshAttemptKeys = new Set();
+const pokeCooldownKeys = new Set();
 
 function activeSession() {
   return state.sessions.find((item) => item.session_id === state.activeSessionId) || null;
@@ -52,10 +56,31 @@ async function refreshSessionMediaCache(sessionId) {
   try {
     const data = await apiGet("page/messages", {
       session_id: cleanSessionId,
-      limit: 80,
+      limit: MESSAGE_PAGE_LIMIT,
     });
     const items = Array.isArray(data.items) ? data.items : [];
-    state.messagesBySession.set(cleanSessionId, items);
+    const existing = state.messagesBySession.get(cleanSessionId) || [];
+    let next = items;
+    if (existing.length > items.length) {
+      const seenMessageIds = new Set();
+      next = [];
+      for (const item of [...items, ...existing]) {
+        const messageId = text(item?.message_id).trim();
+        if (!messageId || seenMessageIds.has(messageId)) {
+          continue;
+        }
+        seenMessageIds.add(messageId);
+        next.push(item);
+      }
+      next.sort((left, right) => {
+        const timeDiff = Number(left.time || 0) - Number(right.time || 0);
+        if (timeDiff !== 0) {
+          return timeDiff;
+        }
+        return text(left.message_id).localeCompare(text(right.message_id));
+      });
+    }
+    state.messagesBySession.set(cleanSessionId, next);
     if (data.session && typeof data.session === "object") {
       const target = state.sessions.find((item) => item.session_id === cleanSessionId);
       if (target) {
@@ -220,6 +245,96 @@ function formatUnreadCount(count) {
 
 function activeItems() {
   return state.messagesBySession.get(state.activeSessionId) || [];
+}
+
+async function loadOlderMessages() {
+  const sessionId = text(state.activeSessionId).trim();
+  const items = activeItems();
+  const history = state.messageHistoryBySession.get(sessionId) || {};
+  if (!sessionId || !items.length || history.loadingOlder || history.hasMoreOlder === false) {
+    return;
+  }
+  const before = Number(items[0]?.time || 0);
+  if (!before) {
+    state.messageHistoryBySession.set(sessionId, {
+      ...history,
+      hasMoreOlder: false,
+      loadingOlder: false,
+    });
+    return;
+  }
+  state.messageHistoryBySession.set(sessionId, {
+    ...history,
+    loadingOlder: true,
+  });
+  const previousScrollHeight = els.messageList.scrollHeight;
+  const previousScrollTop = els.messageList.scrollTop;
+  try {
+    const data = await apiGet("page/messages", {
+      session_id: sessionId,
+      before,
+      limit: MESSAGE_PAGE_LIMIT,
+    });
+    if (state.activeSessionId !== sessionId) {
+      return;
+    }
+    const olderItems = Array.isArray(data.items) ? data.items : [];
+    const nextHistory = {
+      ...(state.messageHistoryBySession.get(sessionId) || {}),
+      hasMoreOlder: olderItems.length >= MESSAGE_PAGE_LIMIT,
+      loadingOlder: false,
+    };
+    state.messageHistoryBySession.set(sessionId, nextHistory);
+    if (!olderItems.length) {
+      return;
+    }
+    const existing = activeItems();
+    const seenMessageIds = new Set();
+    const next = [];
+    for (const item of [...olderItems, ...existing]) {
+      const messageId = text(item?.message_id).trim();
+      if (!messageId || seenMessageIds.has(messageId)) {
+        continue;
+      }
+      seenMessageIds.add(messageId);
+      next.push(item);
+    }
+    next.sort((left, right) => {
+      const timeDiff = Number(left.time || 0) - Number(right.time || 0);
+      if (timeDiff !== 0) {
+        return timeDiff;
+      }
+      return text(left.message_id).localeCompare(text(right.message_id));
+    });
+    state.messagesBySession.set(sessionId, next);
+    if (data.session && typeof data.session === "object") {
+      const target = state.sessions.find((item) => item.session_id === sessionId);
+      if (target) {
+        Object.assign(target, data.session);
+        renderSessionList();
+      }
+    }
+    renderMessages({
+      preserveScrollOffset: true,
+      previousScrollHeight,
+      previousScrollTop,
+    });
+  } catch {
+    if (state.activeSessionId === sessionId) {
+      state.messageHistoryBySession.set(sessionId, {
+        ...(state.messageHistoryBySession.get(sessionId) || {}),
+        loadingOlder: false,
+      });
+    }
+  } finally {
+    const currentHistory = state.messageHistoryBySession.get(sessionId);
+    if (currentHistory?.loadingOlder) {
+      state.messageHistoryBySession.set(sessionId, {
+        ...currentHistory,
+        loadingOlder: false,
+      });
+    }
+  }
 }
 
 function updateMessageJumpButton() {
@@ -417,11 +532,220 @@ function formatMessageTimeDivider(timestamp) {
     : `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${hours}:${minutes}`;
 }
 
-function buildMessageNotice(textContent) {
+function buildMessageNotice(content) {
   const notice = document.createElement("div");
   notice.className = "message-notice";
-  notice.textContent = text(textContent).trim();
+  if (Array.isArray(content)) {
+    notice.append(...content);
+  } else if (content instanceof Node) {
+    notice.append(content);
+  } else {
+    notice.textContent = text(content).trim();
+  }
   return notice;
+}
+
+function playAvatarPokeAnimation(avatar) {
+  avatar.classList.remove("is-poke-shaking");
+  void avatar.offsetWidth;
+  avatar.classList.add("is-poke-shaking");
+}
+
+async function sendAvatarPoke(avatar, item) {
+  const userId = text(item?.user_id).trim();
+  if (!userId) {
+    return;
+  }
+  const groupId = item?.message_type === "group" ? text(item?.group_id).trim() : "";
+  const pokeKey = `${groupId}:${userId}`;
+  if (pokeCooldownKeys.has(pokeKey)) {
+    return;
+  }
+  pokeCooldownKeys.add(pokeKey);
+  playAvatarPokeAnimation(avatar);
+  try {
+    await apiPost("page/action/poke", {
+      user_id: userId,
+      group_id: groupId,
+    });
+  } catch (error) {
+    setStatus(
+      error?.message || t("pages.dashboard.status.poke_failed", "Failed to send poke.")
+    );
+  } finally {
+    window.setTimeout(() => {
+      pokeCooldownKeys.delete(pokeKey);
+    }, 800);
+  }
+}
+
+function formatNoticeString(key, values = {}) {
+  let content = t(`pages.dashboard.notices.${key}`, "");
+  for (const [name, value] of Object.entries(values)) {
+    content = content.replaceAll(`{${name}}`, text(value).trim());
+  }
+  return content;
+}
+
+function formatNoticeTemplate(key, values = {}) {
+  const template = t(`pages.dashboard.notices.${key}`, "");
+  const parts = [];
+  let cursor = 0;
+  for (const match of template.matchAll(/\{([^}]+)\}/g)) {
+    if (match.index > cursor) {
+      parts.push(document.createTextNode(template.slice(cursor, match.index)));
+    }
+    const value = values[match[1]];
+    if (value instanceof Node) {
+      parts.push(value);
+    } else {
+      parts.push(document.createTextNode(text(value).trim()));
+    }
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < template.length) {
+    parts.push(document.createTextNode(template.slice(cursor)));
+  }
+  return parts;
+}
+
+function noticeUser(userId, groupId) {
+  const cleanUserId = text(userId).trim();
+  if (!cleanUserId) {
+    return document.createTextNode(t("pages.dashboard.messages.unknown_user", "Unknown User"));
+  }
+  const member = findGroupMember(cleanUserId);
+  const cleanGroupId = text(groupId).trim();
+  if (member) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "message-notice-user";
+    button.textContent = text(member.card || member.nickname || member.user_id).trim();
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void openProfileModal({
+        userId: cleanUserId,
+        groupId: cleanGroupId,
+        displayName: button.textContent,
+        nickname: member.nickname,
+        role: member.role,
+        title: member.title,
+      });
+    });
+    return button;
+  }
+  const contact = state.contacts.find(
+    (item) =>
+      text(item.user_id || item.target_id).trim() === cleanUserId &&
+      text(item.message_type || item.type).trim() !== "group"
+  );
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "message-notice-user";
+  button.textContent = text(
+    contact?.remark || contact?.nickname || contact?.title || cleanUserId
+  ).trim();
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void openProfileModal({
+      userId: cleanUserId,
+      groupId: cleanGroupId,
+      displayName: button.textContent,
+      nickname: contact?.nickname,
+      remark: contact?.remark,
+      isFriend: text(contact?.message_type || contact?.type).trim() === "private",
+    });
+  });
+  return button;
+}
+
+function formatNoticeDuration(seconds) {
+  let value = Math.floor(Number(seconds || 0));
+  if (value <= 0) {
+    return "";
+  }
+  const parts = [];
+  for (const [key, unitSeconds] of [
+    ["duration_days", 86400],
+    ["duration_hours", 3600],
+    ["duration_minutes", 60],
+    ["duration_seconds", 1],
+  ]) {
+    const count = Math.floor(value / unitSeconds);
+    if (count <= 0) {
+      continue;
+    }
+    parts.push(formatNoticeString(key, { count }));
+    value -= count * unitSeconds;
+  }
+  return parts.join(formatNoticeString("duration_separator"));
+}
+
+function noticeText(item) {
+  const payload = item?.notice && typeof item.notice === "object" ? item.notice : {};
+  const noticeType = text(item?.notice_type || payload.notice_type).trim();
+  const subType = text(item?.sub_type || payload.sub_type).trim();
+  const groupId = text(payload.group_id || item.group_id || "").trim();
+  const user = noticeUser(payload.user_id || item.user_id, groupId);
+  const operator = noticeUser(payload.operator_id, groupId);
+  const target = noticeUser(payload.target_id, groupId);
+  const file = payload.file && typeof payload.file === "object" ? payload.file : {};
+  const fileName = text(file.name).trim() || t("pages.dashboard.attachments.file", "File");
+
+  if (noticeType === "group_upload") {
+    return formatNoticeTemplate("group_upload", { user, file: fileName });
+  }
+  if (noticeType === "group_admin") {
+    return formatNoticeTemplate(subType === "unset" ? "group_admin_unset" : "group_admin_set", {
+      user,
+    });
+  }
+  if (noticeType === "group_decrease") {
+    const key =
+      subType === "kick_me"
+        ? "group_decrease_kick_me"
+        : subType === "kick"
+          ? "group_decrease_kick"
+          : "group_decrease_leave";
+    return formatNoticeTemplate(key, { user, operator });
+  }
+  if (noticeType === "group_increase") {
+    return formatNoticeTemplate(
+      subType === "invite" ? "group_increase_invite" : "group_increase_approve",
+      { user, operator }
+    );
+  }
+  if (noticeType === "group_ban") {
+    return formatNoticeTemplate(subType === "lift_ban" ? "group_ban_lift" : "group_ban_ban", {
+      user,
+      operator,
+      duration: formatNoticeDuration(payload.duration),
+    });
+  }
+  if (noticeType === "friend_add") {
+    return formatNoticeTemplate("friend_add", { user });
+  }
+  if (noticeType === "group_recall") {
+    return formatNoticeTemplate("group_recall", { user, operator });
+  }
+  if (noticeType === "friend_recall") {
+    return formatNoticeTemplate("friend_recall", { user });
+  }
+  if (noticeType === "notify" && subType === "poke") {
+    return formatNoticeTemplate("notify_poke", { user, target });
+  }
+  if (noticeType === "notify" && subType === "lucky_king") {
+    return formatNoticeTemplate("notify_lucky_king", { user, target });
+  }
+  if (noticeType === "notify" && subType === "honor") {
+    const content = formatNoticeTemplate(`notify_honor_${text(payload.honor_type).trim() || "generic"}`, {
+      user,
+    });
+    return content.length ? content : formatNoticeTemplate("notify_honor_generic", { user });
+  }
+  return formatNoticeTemplate("generic", { type: noticeType || item.post_type || "notice" });
 }
 
 function buildReplyAction(item) {
@@ -504,7 +828,12 @@ function handleMessageBoundary(deltaY) {
   const maxScrollTop = Math.max(0, els.messageList.scrollHeight - els.messageList.clientHeight);
   const atTop = els.messageList.scrollTop <= 0;
   const atBottom = els.messageList.scrollTop >= maxScrollTop - 1;
-  if ((deltaY < 0 && atTop) || (deltaY > 0 && atBottom)) {
+  if (deltaY < 0 && atTop) {
+    void loadOlderMessages();
+    setMessageBounceOffset(state.messageBounceOffset - deltaY * 0.18);
+    return true;
+  }
+  if (deltaY > 0 && atBottom) {
     setMessageBounceOffset(state.messageBounceOffset - deltaY * 0.18);
     return true;
   }
@@ -670,6 +999,9 @@ function mediaSegmentsOf(item) {
 
 export function bindMessageEvents() {
   els.messageList.addEventListener("scroll", () => {
+    if (els.messageList.scrollTop <= 8) {
+      void loadOlderMessages();
+    }
     syncMessageListState();
   });
 
@@ -827,7 +1159,13 @@ export function rememberActiveSessionExitCursor() {
 }
 
 export function renderMessages(options = {}) {
-  const { forceScrollToBottom = false, newMessageCount = 0 } = options;
+  const {
+    forceScrollToBottom = false,
+    newMessageCount = 0,
+    preserveScrollOffset = false,
+    previousScrollHeight = 0,
+    previousScrollTop = 0,
+  } = options;
   const session = activeSession();
   const sessionTitle = session?.title || state.activeSessionId;
   if (session?.message_type === "group") {
@@ -838,7 +1176,7 @@ export function renderMessages(options = {}) {
     els.chatTitle.textContent = sessionTitle;
   }
   const items = state.messagesBySession.get(state.activeSessionId) || [];
-  const previousScrollTop = els.messageList.scrollTop;
+  const previousListScrollTop = els.messageList.scrollTop;
   const shouldStickToBottom = forceScrollToBottom || isMessageListNearBottom();
   const previousRenderedSessionId = els.messageListContent.dataset.sessionId || "";
   const previousLastMessageId = text(
@@ -882,6 +1220,7 @@ export function renderMessages(options = {}) {
   els.messageListContent.className = "message-list-content";
   els.messageListContent.dataset.sessionId = state.activeSessionId;
   els.messageListContent.replaceChildren();
+  const fragment = document.createDocumentFragment();
   let previousMessageTime = 0;
   for (const [index, item] of items.entries()) {
     const messageTime = Number(item.time || 0);
@@ -891,10 +1230,18 @@ export function renderMessages(options = {}) {
     ) {
       const dividerText = formatMessageTimeDivider(messageTime);
       if (dividerText) {
-        els.messageListContent.append(buildMessageNotice(dividerText));
+        fragment.append(buildMessageNotice(dividerText));
       }
     }
     previousMessageTime = messageTime || previousMessageTime;
+
+    if (item.post_type === "notice") {
+      const content = noticeText(item);
+      if (content) {
+        fragment.append(buildMessageNotice(content));
+      }
+      continue;
+    }
 
     const row = document.createElement("article");
     row.className = `message-item${item.is_self ? " self" : ""}`;
@@ -911,6 +1258,13 @@ export function renderMessages(options = {}) {
       avatarUrl(item.user_id, "private"),
       text(item.sender?.card || item.sender?.nickname || item.user_id).slice(0, 1).toUpperCase()
     );
+    avatar.classList.add("is-pokable");
+    avatar.title = t("pages.dashboard.actions.poke", "Poke");
+    avatar.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void sendAvatarPoke(avatar, item);
+    });
 
     const hasSegmentBody = hasRenderableSegmentBody(item);
     const mediaSegments = mediaSegmentsOf(item);
@@ -1061,7 +1415,16 @@ export function renderMessages(options = {}) {
       bubble.append(wrap);
     }
 
-    els.messageListContent.append(row);
+    fragment.append(row);
+  }
+  els.messageListContent.append(fragment);
+  if (preserveScrollOffset) {
+    els.messageList.scrollTop = Math.max(
+      0,
+      previousScrollTop + els.messageList.scrollHeight - previousScrollHeight
+    );
+    syncMessageListState();
+    return;
   }
   if (shouldStickToBottom) {
     state.pendingNewMessageCount = 0;
@@ -1071,6 +1434,6 @@ export function renderMessages(options = {}) {
   if (newMessageCount > 0) {
     state.pendingNewMessageCount += newMessageCount;
   }
-  els.messageList.scrollTop = previousScrollTop;
+  els.messageList.scrollTop = previousListScrollTop;
   syncMessageListState();
 }

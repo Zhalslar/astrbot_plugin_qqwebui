@@ -5,11 +5,11 @@ from typing import Any
 
 from astrbot.api import logger
 
-from ..infra.event import MessageEvent
+from ..infra.event import OnebotEvent
 from ..infra.models import (
+    EventRecord,
     GroupMemberProfile,
     GroupProfile,
-    MessageRecord,
     UserProfile,
 )
 from ..infra.store import QQWebuiStore
@@ -121,37 +121,48 @@ class SessionService:
         )
         return payload
 
-    def cache_message(self, event: MessageEvent) -> None:
-        message = event.to_message_record()
+    def cache_event(self, event: OnebotEvent) -> None:
+        """Cache a OneBot event and publish the updated session.
+
+        Args:
+            event: Parsed OneBot event to append to the active session stream.
+        """
+
+        message = event.to_event_record()
         title = self._sync_event_profiles(event)
-        self._add_at_name(message)
+        if message.post_type == "message":
+            self._add_at_name(message)
         self.store.messages.append(message)
-        self.store.sessions.touch_with_message(message, title=title)
+        self.store.sessions.touch_with_event(message, title=title)
         session = self.store.sessions.get(message.session_id)
         if session is None:
             return
-        if (
-            self.store.view_at_bottom
-            and self.store.view_session_id == message.session_id
-        ):
-            session.read_mid = message.message_id
-            session.unread = 0
-        elif not message.is_self:
-            session.unread += 1
+        if message.post_type == "message":
+            if (
+                self.store.view_at_bottom
+                and self.store.view_session_id == message.session_id
+            ):
+                session.read_mid = message.message_id
+                session.unread = 0
+            elif not message.is_self:
+                session.unread += 1
         self.sse.publish_message(
             message=message,
             session=session.to_dict(),
             last_active_session_id=self.store.last_active_session_id,
         )
-        asyncio.create_task(self.normalize_message_media_urls(message))
+        if message.post_type == "message":
+            asyncio.create_task(self.normalize_message_media_urls(message))
 
-    def _sync_event_profiles(self, event: MessageEvent) -> str:
+    def _sync_event_profiles(self, event: OnebotEvent) -> str:
         title = event.sender_name
         if event.user_id:
             user = self.store.contacts.users.get(event.user_id)
             if user is None:
                 user = UserProfile(user_id=event.user_id)
             user.patch(nickname=event.sender.nickname)
+            if event.notice_type == "friend_add":
+                user.is_friend = True
             self.store.contacts.upsert_user(user)
             title = user.display_name
 
@@ -193,7 +204,7 @@ class SessionService:
                 self.store.contacts.upsert_group_member(event.group_id, member)
         return title
 
-    def _add_at_name(self, message: MessageRecord) -> None:
+    def _add_at_name(self, message: EventRecord) -> None:
         for segment in message.message:
             if segment["type"] != "at":
                 continue
@@ -204,8 +215,13 @@ class SessionService:
             if not data.get("name"):
                 data["name"] = self.store.get_user_name(qq, message.group_id)
 
-    async def normalize_message_media_urls(self, message: MessageRecord) -> None:
-        """Replace cached media URLs in the background."""
+    async def normalize_message_media_urls(self, message: EventRecord) -> None:
+        """Replace cached media URLs in the background.
+
+        Args:
+            message: Message record whose media segments should be normalized.
+        """
+
         try:
             pending_segments = [message.message]
             while pending_segments:

@@ -69,12 +69,10 @@ async function init() {
   try {
     await loadStatus();
     await loadSessions();
-    await loadContacts(openSession, false);
     await renderComposerPreview();
     updateSendAvailability();
     renderRecorderButton();
     renderSessionList(openSession);
-    renderContactList(openSession);
     const savedActiveSessionId = String(state.status?.ui?.last_active_session_id ?? "").trim();
     if (savedActiveSessionId) {
       try {
@@ -83,6 +81,11 @@ async function init() {
         resetActiveSessionView();
       }
     }
+    void loadContacts(openSession, false).catch((error) => {
+      setStatus(
+        error.message || t("pages.dashboard.status.initialization_failed", "Initialization failed.")
+      );
+    });
     await connectEventStream();
   } catch (error) {
     setStatus(

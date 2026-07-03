@@ -15,6 +15,7 @@ import { rememberActiveSessionExitCursor, renderMessages } from "./messages.js";
 import { renderSessionList } from "./sidebar.js";
 
 let openSessionHandler = null;
+const MESSAGE_PAGE_LIMIT = 50;
 
 export function setOpenSessionHandler(handler) {
   openSessionHandler = handler;
@@ -56,11 +57,15 @@ function areMessageListsEqual(left, right) {
     const rightItem = right[index];
     if (
       leftItem.message_id !== rightItem.message_id ||
+      leftItem.post_type !== rightItem.post_type ||
+      leftItem.notice_type !== rightItem.notice_type ||
+      leftItem.sub_type !== rightItem.sub_type ||
       leftItem.summary !== rightItem.summary ||
       leftItem.time !== rightItem.time ||
       leftItem.message_type !== rightItem.message_type ||
       leftItem.user_id !== rightItem.user_id ||
       JSON.stringify(leftItem.sender || {}) !== JSON.stringify(rightItem.sender || {}) ||
+      JSON.stringify(leftItem.notice || {}) !== JSON.stringify(rightItem.notice || {}) ||
       JSON.stringify(leftItem.message || []) !== JSON.stringify(rightItem.message || [])
     ) {
       return false;
@@ -118,6 +123,7 @@ function removeSession(sessionId) {
   const changed = next.length !== state.sessions.length;
   state.sessions = next;
   state.messagesBySession.delete(cleanSessionId);
+  state.messageHistoryBySession.delete(cleanSessionId);
   state.messagePrefetching.delete(cleanSessionId);
   state.sessionMutePendingIds.delete(cleanSessionId);
   state.sessionPinPendingIds.delete(cleanSessionId);
@@ -167,7 +173,7 @@ export async function loadSessions() {
   if (changed && openSessionHandler) {
     renderSessionList(openSessionHandler);
   }
-  void prefetchRecentSessionMessages();
+  void prefetchActiveSessionMessages();
 }
 
 export async function setSessionMuted(sessionId, muted) {
@@ -283,6 +289,7 @@ export async function deleteSession(sessionId) {
 
   const wasActive = state.activeSessionId === cleanSessionId;
   const previousMessages = state.messagesBySession.get(cleanSessionId) || null;
+  const previousHistory = state.messageHistoryBySession.get(cleanSessionId) || null;
   state.sessionDeletePendingIds.add(cleanSessionId);
   removeSession(cleanSessionId);
 
@@ -296,6 +303,9 @@ export async function deleteSession(sessionId) {
     state.sessionDeletePendingIds.delete(cleanSessionId);
     if (previousMessages) {
       state.messagesBySession.set(cleanSessionId, previousMessages);
+    }
+    if (previousHistory) {
+      state.messageHistoryBySession.set(cleanSessionId, previousHistory);
     }
     upsertSession(current);
     if (wasActive) {
@@ -314,12 +324,41 @@ export async function deleteSession(sessionId) {
 export async function loadMessages(sessionId) {
   const data = await apiGet("page/messages", {
     session_id: sessionId,
-    limit: 80,
+    limit: MESSAGE_PAGE_LIMIT,
   });
   const items = Array.isArray(data.items) ? data.items : [];
   const existing = state.messagesBySession.get(sessionId) || [];
-  const changed = !areMessageListsEqual(existing, items);
-  state.messagesBySession.set(sessionId, items);
+  let next = items;
+  if (existing.length > items.length) {
+    const seenMessageIds = new Set();
+    next = [];
+    for (const item of [...items, ...existing]) {
+      const messageId = text(item?.message_id).trim();
+      if (!messageId || seenMessageIds.has(messageId)) {
+        continue;
+      }
+      seenMessageIds.add(messageId);
+      next.push(item);
+    }
+    next.sort((left, right) => {
+      const timeDiff = Number(left.time || 0) - Number(right.time || 0);
+      if (timeDiff !== 0) {
+        return timeDiff;
+      }
+      return text(left.message_id).localeCompare(text(right.message_id));
+    });
+  }
+  const changed = !areMessageListsEqual(existing, next);
+  state.messagesBySession.set(sessionId, next);
+  const history = state.messageHistoryBySession.get(sessionId) || {};
+  state.messageHistoryBySession.set(sessionId, {
+    ...history,
+    hasMoreOlder:
+      existing.length > items.length
+        ? history.hasMoreOlder !== false
+        : items.length >= MESSAGE_PAGE_LIMIT,
+    loadingOlder: false,
+  });
   if (data.session) {
     upsertSession(data.session);
   }
@@ -366,12 +405,20 @@ export async function openSession(sessionId) {
     renderSessionList(openSessionHandler);
   }
   const cached = state.messagesBySession.get(sessionId) || [];
+  const cachedRecent = cached.slice(-MESSAGE_PAGE_LIMIT);
+  if (cached.length !== cachedRecent.length) {
+    state.messagesBySession.set(sessionId, cachedRecent);
+  }
+  state.messageHistoryBySession.set(sessionId, {
+    hasMoreOlder: cached.length >= MESSAGE_PAGE_LIMIT,
+    loadingOlder: false,
+  });
   const session = getSessionPreview(sessionId);
   if (session && Number(session.unread || 0) > 0) {
     session.unread = 0;
     renderSessionList(openSessionHandler);
   }
-  if (cached.length) {
+  if (cachedRecent.length) {
     renderMessages({ forceScrollToBottom: true });
     void loadMessages(sessionId);
   } else {
@@ -390,6 +437,7 @@ export function resetActiveSessionView() {
   state.currentReadingMessageId = "";
   state.pendingNewMessageCount = 0;
   state.groupMembers = [];
+  state.groupMemberByUserId = new Map();
   clearComposerEditor();
   if (openSessionHandler) {
     renderSessionList(openSessionHandler);
@@ -407,22 +455,16 @@ export function showLoadingMessages() {
   );
 }
 
-export async function prefetchRecentSessionMessages() {
-  const targets = state.sessions
-    .slice(0, 8)
-    .map((item) => text(item.session_id).trim())
-    .filter(Boolean)
-    .filter((sessionId) => !state.messagePrefetching.has(sessionId));
-
-  for (const sessionId of targets) {
-    state.messagePrefetching.add(sessionId);
-    void (async () => {
-      try {
-        await loadMessages(sessionId);
-      } catch {}
-      state.messagePrefetching.delete(sessionId);
-    })();
+export async function prefetchActiveSessionMessages() {
+  const sessionId = text(state.activeSessionId).trim();
+  if (!sessionId || state.messagePrefetching.has(sessionId)) {
+    return;
   }
+  state.messagePrefetching.add(sessionId);
+  try {
+    await loadMessages(sessionId);
+  } catch {}
+  state.messagePrefetching.delete(sessionId);
 }
 
 export { getSessionPreview };

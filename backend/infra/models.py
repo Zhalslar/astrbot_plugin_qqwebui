@@ -268,7 +268,7 @@ class Sender:
 
 
 @dataclass(slots=True)
-class MessageRecord:
+class EventRecord:
     self_id: str
     user_id: str
     time: int
@@ -283,6 +283,8 @@ class MessageRecord:
     sender: Sender = field(default_factory=lambda: Sender(user_id=""))
     session_id: str = ""
     summary: str = ""
+    notice_type: str = ""
+    notice: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -300,16 +302,21 @@ class MessageRecord:
             "session_id": self.session_id,
             "is_self": self.is_self,
             "summary": self.summary,
+            "notice_type": self.notice_type,
+            "notice": self.notice,
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> MessageRecord:
+    def from_dict(cls, data: dict[str, Any]) -> EventRecord:
         sender = data.get("sender", {})
         if not isinstance(sender, dict):
             sender = {}
         message = data.get("message", [])
         if not isinstance(message, list):
             message = []
+        notice = data.get("notice", {})
+        if not isinstance(notice, dict):
+            notice = {}
         return cls(
             self_id=str(data.get("self_id", "")),
             user_id=str(data.get("user_id", "")),
@@ -329,6 +336,8 @@ class MessageRecord:
             session_id=str(data.get("session_id", "")),
             is_self=bool(data.get("is_self", False)),
             summary=str(data.get("summary", "")),
+            notice_type=str(data.get("notice_type", "")),
+            notice=dict(notice),
         )
 
 

@@ -10,23 +10,23 @@ from astrbot.api import logger
 from ...config import PluginConfig
 from .models import (
     ContactPreview,
+    EventRecord,
     GroupMemberProfile,
     GroupProfile,
     LoginInfo,
-    MessageRecord,
     SessionPreview,
     UserProfile,
 )
 
 
-class MessageCache:
-    """Keep a bounded recent message window for active sessions."""
+class EventCache:
+    """Keep a bounded recent event window for active sessions."""
 
     def __init__(self, per_session_limit: int):
         self._per_session_limit = per_session_limit
-        self._messages: dict[str, list[MessageRecord]] = {}
+        self._messages: dict[str, list[EventRecord]] = {}
 
-    def append(self, message: MessageRecord) -> None:
+    def append(self, message: EventRecord) -> None:
         rows = self._messages.setdefault(message.session_id, [])
         if any(item.message_id == message.message_id for item in rows):
             return
@@ -43,7 +43,7 @@ class MessageCache:
         *,
         before: int | None = None,
         limit: int = 50,
-    ) -> list[MessageRecord]:
+    ) -> list[EventRecord]:
         rows = self._messages.get(session_id, [])
         filtered = [row for row in rows if before is None or row.time < before]
         return filtered[-limit:]
@@ -66,7 +66,7 @@ class MessageCache:
     def load_data(self, rows: list[dict[str, Any]]) -> None:
         self._messages.clear()
         for row in rows:
-            self.append(MessageRecord.from_dict(row))
+            self.append(EventRecord.from_dict(row))
 
 
 class SessionCache:
@@ -79,7 +79,7 @@ class SessionCache:
         self._sessions[session.session_id] = session
         return session
 
-    def touch_with_message(self, message: MessageRecord, *, title: str) -> None:
+    def touch_with_event(self, message: EventRecord, *, title: str) -> None:
         current = self._sessions.get(message.session_id)
         read_mid = current.read_mid if current else ""
         unread = current.unread if current else 0
@@ -98,7 +98,7 @@ class SessionCache:
             muted=muted,
             pin=pin,
             pin_at=pin_at,
-            kind="message",
+            kind=message.post_type or "message",
             summary=message.summary,
             time=message.time,
             member_count=member_count,
@@ -415,7 +415,7 @@ class QQWebuiStore:
 
     def __init__(self, cfg: PluginConfig):
         self.cfg = cfg
-        self.messages = MessageCache(self.cfg.session_message_limit)
+        self.messages = EventCache(self.cfg.session_message_limit)
         self.sessions = SessionCache()
         self.contacts = ContactCache()
         self.media_tokens = MediaTokenCache()

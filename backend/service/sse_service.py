@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
-from ..infra.models import MessageRecord
+from ..infra.models import EventRecord
 from ..infra.store import QQWebuiStore
 
 
@@ -61,7 +61,7 @@ class SseService:
     def publish_message(
         self,
         *,
-        message: MessageRecord,
+        message: EventRecord,
         session: dict[str, Any],
         last_active_session_id: str,
     ) -> None:

@@ -30,6 +30,13 @@ function sessionPreviewText(session) {
   if (!summary) {
     return t("pages.dashboard.sessions.no_preview", "No preview");
   }
+  if (session.kind === "notice") {
+    const noticeType = summary.match(/^\[Notice:([^\]]+)\]$/)?.[1] || "notice";
+    return t("pages.dashboard.notices.generic", "Notice: {type}").replace(
+      "{type}",
+      noticeType
+    );
+  }
   if (session.message_type !== "group") {
     return summary;
   }
