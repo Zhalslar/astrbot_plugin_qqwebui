@@ -10,23 +10,23 @@ from astrbot.api import logger
 from ...config import PluginConfig
 from .models import (
     ContactPreview,
+    EventRecord,
     GroupMemberProfile,
     GroupProfile,
     LoginInfo,
-    MessageRecord,
     SessionPreview,
     UserProfile,
 )
 
 
-class MessageCache:
-    """Keep a bounded recent message window for active sessions."""
+class EventCache:
+    """Keep a bounded recent event window for active sessions."""
 
     def __init__(self, per_session_limit: int):
         self._per_session_limit = per_session_limit
-        self._messages: dict[str, list[MessageRecord]] = {}
+        self._messages: dict[str, list[EventRecord]] = {}
 
-    def append(self, message: MessageRecord) -> None:
+    def append(self, message: EventRecord) -> None:
         rows = self._messages.setdefault(message.session_id, [])
         if any(item.message_id == message.message_id for item in rows):
             return
@@ -43,7 +43,7 @@ class MessageCache:
         *,
         before: int | None = None,
         limit: int = 50,
-    ) -> list[MessageRecord]:
+    ) -> list[EventRecord]:
         rows = self._messages.get(session_id, [])
         filtered = [row for row in rows if before is None or row.time < before]
         return filtered[-limit:]
@@ -66,7 +66,7 @@ class MessageCache:
     def load_data(self, rows: list[dict[str, Any]]) -> None:
         self._messages.clear()
         for row in rows:
-            self.append(MessageRecord.from_dict(row))
+            self.append(EventRecord.from_dict(row))
 
 
 class SessionCache:
@@ -79,15 +79,15 @@ class SessionCache:
         self._sessions[session.session_id] = session
         return session
 
-    def touch_with_message(self, message: MessageRecord, *, title: str) -> None:
+    def touch_with_event(self, message: EventRecord, *, title: str) -> None:
         current = self._sessions.get(message.session_id)
         read_mid = current.read_mid if current else ""
         unread = current.unread if current else 0
         muted = current.muted if current else False
+        pin = current.pin if current else False
+        pin_at = current.pin_at if current else 0
         member_count = current.member_count if current else None
-        sender_name = (
-            message.sender.card or message.sender.nickname or message.user_id
-        )
+        sender_name = message.sender.card or message.sender.nickname or message.user_id
         self._sessions[message.session_id] = SessionPreview(
             session_id=message.session_id,
             message_type=message.message_type,
@@ -96,7 +96,9 @@ class SessionCache:
             read_mid=read_mid,
             unread=unread,
             muted=muted,
-            kind="message",
+            pin=pin,
+            pin_at=pin_at,
+            kind=message.post_type or "message",
             summary=message.summary,
             time=message.time,
             member_count=member_count,
@@ -120,6 +122,43 @@ class SessionCache:
         session.unread = 0
         return session
 
+    def set_muted(self, session_id: str, muted: bool) -> SessionPreview | None:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        session.muted = muted
+        return session
+
+    def set_pin(self, session_id: str, pin: bool) -> SessionPreview | None:
+        """Set the pinned state for a cached session.
+
+        Args:
+            session_id: Session identifier such as ``group:123``.
+            pin: Whether the session should be pinned.
+
+        Returns:
+            The updated session preview, or None when the session does not exist.
+        """
+
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        session.pin = pin
+        session.pin_at = int(time()) if pin else 0
+        return session
+
+    def delete(self, session_id: str) -> SessionPreview | None:
+        """Remove a cached session.
+
+        Args:
+            session_id: Session identifier to remove.
+
+        Returns:
+            The removed session preview, or None when it does not exist.
+        """
+
+        return self._sessions.pop(session_id, None)
+
     def list_sorted(
         self,
         *,
@@ -137,7 +176,15 @@ class SessionCache:
                 for row in rows
                 if lowered in row.title.lower() or lowered in row.target_id.lower()
             ]
-        rows.sort(key=lambda row: (row.time, row.session_id), reverse=True)
+        rows.sort(
+            key=lambda row: (
+                row.pin,
+                row.pin_at if row.pin else 0,
+                row.time,
+                row.session_id,
+            ),
+            reverse=True,
+        )
         return rows[:limit]
 
     def get(self, session_id: str) -> SessionPreview | None:
@@ -353,9 +400,7 @@ class MediaTokenCache:
             if entry.get("token") != normalized_token
             and entry.get("file_path") != normalized_path
         ]
-        self.entries.append(
-            {"token": normalized_token, "file_path": normalized_path}
-        )
+        self.entries.append({"token": normalized_token, "file_path": normalized_path})
 
     def prune_missing_files(self) -> None:
         self.entries = [
@@ -370,7 +415,7 @@ class QQWebuiStore:
 
     def __init__(self, cfg: PluginConfig):
         self.cfg = cfg
-        self.messages = MessageCache(self.cfg.session_message_limit)
+        self.messages = EventCache(self.cfg.session_message_limit)
         self.sessions = SessionCache()
         self.contacts = ContactCache()
         self.media_tokens = MediaTokenCache()

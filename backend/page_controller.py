@@ -13,6 +13,7 @@ from astrbot.api.web import (
 from astrbot.core.star.context import Context
 
 from ..config import PluginConfig
+from .service.action_service import ActionService
 from .service.contact_service import ContactService
 from .service.file_service import FileService
 from .service.outbound_service import OutboundService
@@ -34,6 +35,7 @@ class PageController:
         sessions: SessionService,
         files: FileService,
         outbound: OutboundService,
+        actions: ActionService,
     ) -> None:
         self.context = context
         self.sse = sse
@@ -42,6 +44,7 @@ class PageController:
         self.sessions = sessions
         self.files = files
         self.outbound = outbound
+        self.actions = actions
         self.cfg = cfg
         self.routes = [
             ("/page/status", self.page_status, ["GET"], "status"),
@@ -49,6 +52,14 @@ class PageController:
             ("/page/messages", self.page_messages, ["GET"], "messages"),
             ("/page/events", self.page_events, ["GET"], "SSE updates"),
             ("/page/view", self.page_view, ["POST"], "sync session view"),
+            ("/page/session/mute", self.page_session_mute, ["POST"], "mute session"),
+            ("/page/session/pin", self.page_session_pin, ["POST"], "pin session"),
+            (
+                "/page/session/delete",
+                self.page_session_delete,
+                ["POST"],
+                "delete session",
+            ),
             ("/page/contacts", self.page_contacts, ["GET"], "contacts"),
             ("/page/contacts/refresh", self.page_contacts_refresh, ["POST"], "..."),
             (
@@ -66,6 +77,7 @@ class PageController:
             ("/page/group/members", self.page_group_members, ["GET"], "group members"),
             ("/page/face-index", self.page_face_index, ["GET"], "QQ face catalog"),
             ("/page/send", self.page_send, ["POST"], "send message"),
+            ("/page/action/poke", self.page_action_poke, ["POST"], "send poke"),
             ("/page/media/upload", self.page_media_upload, ["POST"], "upload media"),
             ("/page/faces", self.page_faces, ["GET"], "QQ face assets"),
         ]
@@ -142,6 +154,41 @@ class PageController:
             )
         except Exception as exc:
             logger.exception("[qqwebui] page_view failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_session_mute(self):
+        try:
+            payload = await request.json(default={}) or {}
+            session_id = str(payload.get("session_id", "")).strip()
+            muted = bool(payload.get("muted", False))
+            return self._ok(await self.sessions.set_session_muted(session_id, muted))
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_session_mute failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_session_pin(self):
+        try:
+            payload = await request.json(default={}) or {}
+            session_id = str(payload.get("session_id", "")).strip()
+            pin = bool(payload.get("pin", False))
+            return self._ok(await self.sessions.set_session_pin(session_id, pin))
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_session_pin failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_session_delete(self):
+        try:
+            payload = await request.json(default={}) or {}
+            session_id = str(payload.get("session_id", "")).strip()
+            return self._ok(await self.sessions.delete_session(session_id))
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_session_delete failed: %s", exc)
             return self._error(str(exc), 500)
 
     async def page_contacts(self):
@@ -247,6 +294,19 @@ class PageController:
             return self._error(str(exc), 400)
         except Exception as exc:
             logger.exception("[qqwebui] page_send failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_action_poke(self):
+        try:
+            payload = await request.json(default={}) or {}
+            user_id = str(payload.get("user_id", "")).strip()
+            group_id = str(payload.get("group_id", "")).strip()
+            data = await self.actions.send_poke(user_id, group_id=group_id)
+            return self._ok(data, "sent")
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_action_poke failed: %s", exc)
             return self._error(str(exc), 500)
 
     async def page_media_upload(self):

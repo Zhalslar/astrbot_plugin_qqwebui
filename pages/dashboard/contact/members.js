@@ -15,9 +15,7 @@ function roleBadgeLabel(role) {
 }
 
 export function findGroupMember(userId) {
-  return (
-    state.groupMembers.find((item) => text(item.user_id).trim() === text(userId).trim()) || null
-  );
+  return state.groupMemberByUserId.get(text(userId).trim()) || null;
 }
 
 export function buildGroupBadge(member) {
@@ -28,7 +26,7 @@ export function buildGroupBadge(member) {
   const title = text(member?.title).trim();
   return {
     text: `${level ? `LV${level} ` : ""}${title || roleBadgeLabel(role)}`.trim(),
-    role,
+    role: role === "member" && title ? "title" : role,
     name: text(member?.card || member?.nickname || member?.user_id).trim(),
   };
 }

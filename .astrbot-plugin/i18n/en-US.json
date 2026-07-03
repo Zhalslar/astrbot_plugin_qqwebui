@@ -13,8 +13,14 @@
         "more_chat_actions": "More chat actions",
         "upload_attachment": "Upload attachment",
         "emoji": "Emoji",
+        "poke": "Poke",
         "close_media_preview": "Close media preview",
         "close_quote_viewer": "Close quote viewer"
+      },
+      "left_tabs": {
+        "sessions": "sessions",
+        "friends": "Friends",
+        "groups": "Groups"
       },
       "sessions": {
         "title": "Recent sessions",
@@ -25,6 +31,8 @@
       "contacts": {
         "title": "Contacts",
         "search_placeholder": "Friend / group / QQ",
+        "search_friends_placeholder": "Friend / QQ",
+        "search_groups_placeholder": "Group / QQ",
         "empty": "Contacts will appear after refresh.",
         "types": {
           "group": "Group",
@@ -137,6 +145,33 @@
         "unknown_user": "Unknown User",
         "empty_message": "[Empty message]"
       },
+      "notices": {
+        "generic": "Notice: {type}",
+        "duration_separator": " ",
+        "duration_days": "{count}d",
+        "duration_hours": "{count}h",
+        "duration_minutes": "{count}m",
+        "duration_seconds": "{count}s",
+        "group_upload": "{user} uploaded {file}",
+        "group_admin_set": "{user} became an admin",
+        "group_admin_unset": "{user} is no longer an admin",
+        "group_decrease_leave": "{user} left the group",
+        "group_decrease_kick": "{user} was removed by {operator}",
+        "group_decrease_kick_me": "The bot was removed by {operator}",
+        "group_increase_approve": "{user} joined the group",
+        "group_increase_invite": "{user} joined by invitation from {operator}",
+        "group_ban_ban": "{user} was muted by {operator} for {duration}",
+        "group_ban_lift": "{user} was unmuted by {operator}",
+        "friend_add": "{user} is now a friend",
+        "group_recall": "{operator} recalled {user}'s message",
+        "friend_recall": "{user} recalled a message",
+        "notify_poke": "{user} poked {target}",
+        "notify_lucky_king": "{target} became the lucky king of {user}'s red packet",
+        "notify_honor_talkative": "{user} earned Dragon King honor",
+        "notify_honor_performer": "{user} earned Group Flame honor",
+        "notify_honor_emotion": "{user} earned Happy Source honor",
+        "notify_honor_generic": "{user} earned a group honor"
+      },
       "forward": {
         "modal_title": "Forwarded Messages",
         "modal_meta": "{count} messages",
@@ -158,6 +193,7 @@
         "quote_not_loaded": "Quoted message is not in the current loaded message window.",
         "message_sent": "Message sent",
         "send_failed": "Send failed.",
+        "poke_failed": "Failed to send poke.",
         "paste_ignored_large": "Ignored pasted attachments larger than 15 MB.",
         "pasted_one": "Pasted attachment: {name}",
         "pasted_many": "Pasted {count} attachments",

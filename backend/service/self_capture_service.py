@@ -6,7 +6,7 @@ from typing import Any
 from aiocqhttp import CQHttp
 
 from ...config import PluginConfig
-from ..infra.event import MessageEvent
+from ..infra.event import OnebotEvent
 from ..infra.models import Sender
 from ..infra.store import QQWebuiStore
 from .file_service import FileService
@@ -92,7 +92,7 @@ class SelfCaptureService:
                 message_type = "group"
             else:
                 return
-        event = MessageEvent(
+        event = OnebotEvent(
             self_id=self_id,
             user_id=self_id,
             time=int(time.time()),
@@ -106,7 +106,7 @@ class SelfCaptureService:
             sender=self.sender,
             _target_id=str(user_id or group_id),
         )
-        self.sessions.cache_message(event)
+        self.sessions.cache_event(event)
 
     async def _populate_message_urls(
         self, message: list[dict[str, Any]]

@@ -19,11 +19,13 @@ class FileService:
     IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"}
     VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
     AUDIO_SUFFIXES = {".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".amr"}
+    MEDIA_TOKEN_RESTORE_INTERVAL = 300
 
     def __init__(self, cfg: PluginConfig, store: QQWebuiStore) -> None:
         self.cfg = cfg
         self.store = store
         self.media_dir = self.cfg.media_dir
+        self._media_tokens_registered_at = 0.0
 
     async def upload_media(self, upload: PluginUploadFile) -> dict[str, str | int]:
         filename = Path(upload.filename or "").name
@@ -94,9 +96,23 @@ class FileService:
         self.store.media_tokens.remember(file_token, resolved_file_path)
         return file_token
 
-    def ensure_media_tokens_registered(self) -> None:
+    def ensure_media_tokens_registered(self, *, force: bool = False) -> None:
+        """Restore cached media file tokens into the shared token service.
+
+        Args:
+            force: Whether to bypass the short in-memory throttle.
+        """
+
+        now = time()
+        if (
+            not force
+            and now - self._media_tokens_registered_at
+            < self.MEDIA_TOKEN_RESTORE_INTERVAL
+        ):
+            return
+        self._media_tokens_registered_at = now
         self.store.media_tokens.prune_missing_files()
-        expire_time = time() + self.cfg.media_token_ttl
+        expire_time = now + self.cfg.media_token_ttl
         for entry in self.store.media_tokens.entries:
             token = str(entry.get("token", "") or "").strip()
             file_path = str(entry.get("file_path", "") or "").strip()

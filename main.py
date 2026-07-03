@@ -14,6 +14,7 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_platform_adapter import (
 
 from .backend.infra.store import QQWebuiStore
 from .backend.page_controller import PageController
+from .backend.service.action_service import ActionService
 from .backend.service.contact_service import ContactService
 from .backend.service.file_service import FileService
 from .backend.service.inbound_service import InboundService
@@ -103,6 +104,7 @@ class QQWebui(Star):
         await self.self_capture.initialize()
 
         outbound = OutboundService(bot, files)
+        actions = ActionService(bot)
 
         page_controller = PageController(
             self.cfg,
@@ -113,6 +115,7 @@ class QQWebui(Star):
             sessions,
             files,
             outbound,
+            actions,
         )
         page_controller.register_routes()
 

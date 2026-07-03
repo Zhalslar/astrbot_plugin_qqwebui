@@ -17,7 +17,7 @@ export function handleSseEvent(event) {
     }
     return;
   }
-  if (payload.last_active_session_id) {
+  if (Object.prototype.hasOwnProperty.call(payload, "last_active_session_id")) {
     state.status = {
       ...(state.status || {}),
       ui: {

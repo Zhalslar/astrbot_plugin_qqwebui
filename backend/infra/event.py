@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from aiocqhttp import Event
 
-from .models import MessageRecord, Sender
+from .models import EventRecord, Sender
 
 
 @dataclass(slots=True)
-class MessageEvent:
+class OnebotEvent:
     self_id: str
     user_id: str
     time: int
@@ -22,52 +24,96 @@ class MessageEvent:
     sender: Sender = field(default_factory=lambda: Sender(user_id=""))
     group_id: str = ""
     group_name: str = ""
+    notice_type: str = ""
+    notice: dict[str, Any] = field(default_factory=dict)
     _target_id: str = ""
 
     @classmethod
     def from_event(
         cls,
         event: Event | dict[str, Any],
-    ) -> MessageEvent | None:
-        """Build a message event from a OneBot payload.
+    ) -> OnebotEvent | None:
+        """Build an event from a OneBot payload.
 
         Args:
             event: Original aiocqhttp event or payload mapping.
 
         Returns:
-            Parsed message event when the payload is a message event with
-            array-form segments, otherwise None.
+            Parsed event when the payload is a supported message or notice event.
         """
 
         payload = dict(event)
-        if str(payload.get("post_type", "")).strip() != "message":
-            return None
-        if str(payload.get("message_format", "")).strip().lower() != "array":
-            return None
-
-        raw_segments = payload.get("message")
-        if not isinstance(raw_segments, list):
+        post_type = str(payload.get("post_type", "")).strip()
+        if post_type not in {"message", "notice"}:
             return None
 
-        sender = payload.get("sender", {})
+        if post_type == "message":
+            if str(payload.get("message_format", "")).strip().lower() != "array":
+                return None
+
+            raw_segments = payload.get("message")
+            if not isinstance(raw_segments, list):
+                return None
+
+            sender = payload.get("sender", {})
+            return cls(
+                self_id=str(payload.get("self_id", "")),
+                user_id=str(payload.get("user_id", "")),
+                time=int(payload.get("time", 0) or 0),
+                message_id=str(payload.get("message_id", "")),
+                post_type="message",
+                message_type=str(payload.get("message_type", "")),
+                sub_type=str(payload.get("sub_type", "")),
+                raw_message=str(payload.get("raw_message", "")),
+                message=[dict(item) for item in raw_segments if isinstance(item, dict)],
+                sender=(
+                    Sender.from_dict(sender)
+                    if isinstance(sender, dict)
+                    else Sender(user_id="")
+                ),
+                group_id=str(payload.get("group_id", "")),
+                group_name=str(payload.get("group_name", "")),
+                _target_id=str(payload.get("target_id", "")),
+            )
+
+        notice_type = str(payload.get("notice_type", ""))
+        sub_type = str(payload.get("sub_type", ""))
+        group_id = str(payload.get("group_id", ""))
+        user_id = str(payload.get("user_id", ""))
+        target_id = str(payload.get("target_id", ""))
+        message_type = "group" if group_id else "private"
+        source_message_id = str(payload.get("message_id", ""))
+        payload_fingerprint = hashlib.sha1(
+            json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()[:12]
+        message_id_parts = [
+            "notice",
+            str(payload.get("time", 0) or 0),
+            notice_type,
+            sub_type,
+            group_id,
+            user_id,
+            target_id,
+            str(payload.get("operator_id", "")),
+            source_message_id,
+            payload_fingerprint,
+        ]
         return cls(
             self_id=str(payload.get("self_id", "")),
-            user_id=str(payload.get("user_id", "")),
+            user_id=user_id,
             time=int(payload.get("time", 0) or 0),
-            message_id=str(payload.get("message_id", "")),
-            post_type="message",
-            message_type=str(payload.get("message_type", "")),
-            sub_type=str(payload.get("sub_type", "")),
-            raw_message=str(payload.get("raw_message", "")),
-            message=[dict(item) for item in raw_segments if isinstance(item, dict)],
-            sender=(
-                Sender.from_dict(sender)
-                if isinstance(sender, dict)
-                else Sender(user_id="")
-            ),
-            group_id=str(payload.get("group_id", "")),
+            message_id=":".join(message_id_parts),
+            post_type="notice",
+            message_type=message_type,
+            sub_type=sub_type,
+            raw_message="",
+            message=[],
+            sender=Sender(user_id=user_id),
+            group_id=group_id,
             group_name=str(payload.get("group_name", "")),
-            _target_id=str(payload.get("target_id", "")),
+            notice_type=notice_type,
+            notice=dict(payload),
+            _target_id=target_id,
         )
 
     @property
@@ -101,6 +147,9 @@ class MessageEvent:
         return f"private:{self.target_id}"
 
     def _build_summary(self) -> str:
+        if self.post_type == "notice":
+            return f"[Notice:{self.notice_type or self.sub_type or 'notice'}]"
+
         summary = ""
         for segment in self.message:
             seg_type = str(segment.get("type", ""))
@@ -118,8 +167,8 @@ class MessageEvent:
                     summary += data.get("summary") or f"[{seg_type.capitalize()}]"
         return summary
 
-    def to_message_record(self) -> MessageRecord:
-        return MessageRecord(
+    def to_event_record(self) -> EventRecord:
+        return EventRecord(
             self_id=self.self_id,
             user_id=self.user_id,
             time=self.time,
@@ -134,4 +183,6 @@ class MessageEvent:
             session_id=self.session_id,
             is_self=self.is_self,
             summary=self._build_summary(),
+            notice_type=self.notice_type,
+            notice=self.notice,
         )
