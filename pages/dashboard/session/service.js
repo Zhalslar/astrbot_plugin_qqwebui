@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from "../core/api.js";
+import { LOCAL_MESSAGE_ID_PREFIX } from "../core/constants.js";
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
 import { state } from "../core/state.js";
@@ -16,7 +17,6 @@ import { renderSessionList } from "./sidebar.js";
 
 let openSessionHandler = null;
 const MESSAGE_PAGE_LIMIT = 50;
-const LOCAL_MESSAGE_ID_PREFIX = "local:";
 
 export function setOpenSessionHandler(handler) {
   openSessionHandler = handler;

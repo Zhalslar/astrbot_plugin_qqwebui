@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiUpload } from "../core/api.js";
+import { LOCAL_MESSAGE_ID_PREFIX } from "../core/constants.js";
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
 import { ensureDirectMediaUrl, pendingUploadKindLabel } from "../core/media.js";
@@ -9,7 +10,6 @@ import { ensureFaceAssets, renderMessages } from "../session/messages.js";
 
 const QQ_FACE_PANEL_PAGE_SIZE = 72;
 const EMOJI_PANEL_AUTO_CLOSE_DELAY_MS = 800;
-const LOCAL_MESSAGE_ID_PREFIX = "local:";
 const SEND_PENDING_INDICATOR_DELAY_MS = 700;
 
 let emojiPanelAutoCloseTimerId = 0;

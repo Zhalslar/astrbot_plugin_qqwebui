@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from "../core/api.js";
+import { LOCAL_MESSAGE_ID_PREFIX } from "../core/constants.js";
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
 import { renderMarkdownFragment } from "../core/markdown.js";
@@ -27,7 +28,6 @@ const MESSAGE_BOTTOM_THRESHOLD = 24;
 const MESSAGE_EXIT_CURSOR_THRESHOLD = 8;
 const MESSAGE_TIME_DIVIDER_THRESHOLD = 120;
 const MESSAGE_PAGE_LIMIT = 50;
-const LOCAL_MESSAGE_ID_PREFIX = "local:";
 let mediaPreviewOpen = false;
 let mediaPreviewType = "";
 let mediaPreviewImageScale = 1;
