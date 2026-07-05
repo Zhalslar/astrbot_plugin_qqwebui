@@ -5,10 +5,12 @@ import { ensureDirectMediaUrl, pendingUploadKindLabel } from "../core/media.js";
 import { setStatus } from "../core/status.js";
 import { state } from "../core/state.js";
 import { avatarUrl, setAvatar, text } from "../core/utils.js";
-import { ensureFaceAssets } from "../session/messages.js";
+import { ensureFaceAssets, renderMessages } from "../session/messages.js";
 
 const QQ_FACE_PANEL_PAGE_SIZE = 72;
 const EMOJI_PANEL_AUTO_CLOSE_DELAY_MS = 800;
+const LOCAL_MESSAGE_ID_PREFIX = "local:";
+const SEND_PENDING_INDICATOR_DELAY_MS = 700;
 
 let emojiPanelAutoCloseTimerId = 0;
 
@@ -641,6 +643,201 @@ function composerHasContent() {
   });
 }
 
+function buildLocalMessageSummary(segments) {
+  const parts = [];
+  for (const segment of segments) {
+    const segType = text(segment?.type).trim().toLowerCase();
+    const data = segment?.data && typeof segment.data === "object" ? segment.data : {};
+    if (segType === "reply") {
+      continue;
+    }
+    if (segType === "text") {
+      const value = text(data.text).replace(/\s+/g, " ");
+      if (value.trim()) {
+        parts.push(value);
+      }
+      continue;
+    }
+    if (segType === "at") {
+      parts.push(`@${text(data.name || data.qq).trim()} `);
+      continue;
+    }
+    if (segType === "face") {
+      parts.push("[Face]");
+      continue;
+    }
+    if (segType === "image") {
+      parts.push("[Image]");
+      continue;
+    }
+    if (segType === "video") {
+      parts.push("[Video]");
+      continue;
+    }
+    if (segType === "record") {
+      parts.push("[Record]");
+      continue;
+    }
+    if (segType === "file") {
+      parts.push(`[File:${text(data.name).trim() || "file"}]`);
+    }
+  }
+  return (
+    parts.join("").replace(/\s+/g, " ").trim() ||
+    t("pages.dashboard.messages.empty_message", "[Empty message]")
+  );
+}
+
+function buildOptimisticMessage(sessionId, message) {
+  state.sendQueueSequence += 1;
+  const [messageType, targetId = ""] = text(sessionId).trim().split(":");
+  const selfId = text(state.status?.login?.user_id).trim();
+  const nickname =
+    text(state.status?.login?.nickname).trim() ||
+    t("pages.dashboard.messages.me", "Me");
+  const summary = buildLocalMessageSummary(message);
+  const messageId = `${LOCAL_MESSAGE_ID_PREFIX}${Date.now().toString(36)}-${state.sendQueueSequence}`;
+  return {
+    self_id: selfId,
+    user_id: selfId,
+    time: Math.floor(Date.now() / 1000),
+    is_self: true,
+    message_id: messageId,
+    post_type: "message",
+    message_type: messageType,
+    sub_type: "normal",
+    group_id: messageType === "group" ? targetId : "",
+    raw_message: summary,
+    message,
+    sender: {
+      user_id: selfId,
+      nickname,
+      card: nickname,
+    },
+    session_id: sessionId,
+    summary,
+    send_status: "",
+    send_error: "",
+  };
+}
+
+function insertOptimisticMessage(message) {
+  const rows = state.messagesBySession.get(message.session_id) || [];
+  state.messagesBySession.set(message.session_id, [...rows, message]);
+  if (state.activeSessionId === message.session_id) {
+    renderMessages({ forceScrollToBottom: true });
+  }
+}
+
+function updateOptimisticMessage(entry, sendStatus, sendError = "") {
+  const rows = state.messagesBySession.get(entry.sessionId) || [];
+  const next = rows.map((item) => {
+    if (text(item.message_id).trim() !== entry.localMessageId) {
+      return item;
+    }
+    return {
+      ...item,
+      send_status: sendStatus,
+      send_error: sendError,
+    };
+  });
+  state.messagesBySession.set(entry.sessionId, next);
+  if (state.activeSessionId === entry.sessionId) {
+    renderMessages();
+  }
+}
+
+function isTimeoutError(error) {
+  const message = text(error?.message).trim().toLowerCase();
+  return message.includes("timeout") || message.includes("timed out");
+}
+
+async function processSendQueue() {
+  if (state.sendQueueProcessing) {
+    return;
+  }
+  state.sendQueueProcessing = true;
+  try {
+    while (state.sendQueue.length) {
+      const entry = state.sendQueue[0];
+      try {
+        await apiPost("page/send", {
+          session_id: entry.sessionId,
+          message: entry.outboundMessage,
+        });
+        window.clearTimeout(entry.pendingIndicatorTimerId);
+        updateOptimisticMessage(entry, "sent");
+        setStatus(
+          state.status?.login?.user_id
+            ? `QQ ${state.status.login.user_id}`
+            : t("pages.dashboard.status.message_sent", "Message sent")
+        );
+      } catch (error) {
+        window.clearTimeout(entry.pendingIndicatorTimerId);
+        const sendError =
+          error?.message || t("pages.dashboard.status.send_failed", "Send failed.");
+        updateOptimisticMessage(
+          entry,
+          isTimeoutError(error) ? "timeout" : "failed",
+          sendError
+        );
+        setStatus(sendError);
+      } finally {
+        state.sendQueue.shift();
+      }
+    }
+  } finally {
+    state.sendQueueProcessing = false;
+    updateSendAvailability();
+    if (state.sendQueue.length) {
+      void processSendQueue();
+    }
+  }
+}
+
+export function retryOptimisticMessage(messageId) {
+  const localMessageId = text(messageId).trim();
+  if (!localMessageId) {
+    return false;
+  }
+  let sessionId = "";
+  let targetMessage = null;
+  for (const [candidateSessionId, rows] of state.messagesBySession.entries()) {
+    targetMessage = rows.find(
+      (item) => text(item.message_id).trim() === localMessageId
+    );
+    if (targetMessage) {
+      sessionId = candidateSessionId;
+      break;
+    }
+  }
+  const sendStatus = text(targetMessage?.send_status).trim();
+  const outboundMessage = Array.isArray(targetMessage?.send_payload)
+    ? targetMessage.send_payload
+    : [];
+  if (
+    !sessionId ||
+    !["failed", "timeout"].includes(sendStatus) ||
+    !outboundMessage.length ||
+    state.sendQueue.some((entry) => entry.localMessageId === localMessageId)
+  ) {
+    return false;
+  }
+  updateOptimisticMessage({ sessionId, localMessageId }, "");
+  const pendingIndicatorTimerId = window.setTimeout(() => {
+    updateOptimisticMessage({ sessionId, localMessageId }, "sending");
+  }, SEND_PENDING_INDICATOR_DELAY_MS);
+  state.sendQueue.push({
+    sessionId,
+    localMessageId,
+    outboundMessage,
+    pendingIndicatorTimerId,
+  });
+  setStatus(t("pages.dashboard.status.retrying_send", "Retrying send..."));
+  void processSendQueue();
+  return true;
+}
+
 export function clearComposerEditor() {
   els.composerInput.replaceChildren();
   state.composerSelectionRange = null;
@@ -763,45 +960,77 @@ export async function sendMessage() {
   if (!state.activeSessionId || (!hasTextOrMentions && !state.pendingUploads.length)) {
     return;
   }
-  els.sendBtn.disabled = true;
-  try {
-    const outboundMessage = [];
-    const replyId = text(state.composerReplyTarget?.message_id).trim();
-    if (replyId) {
-      outboundMessage.push({
-        type: "reply",
-        data: {
-          id: replyId,
-        },
-      });
-    }
-    outboundMessage.push(...message);
-    for (const item of state.pendingUploads) {
-      const data = { file: item.key };
-      if (item.type === "file" && item.name) {
-        data.name = item.name;
-      }
-      outboundMessage.push({ type: item.type, data });
-    }
-    await apiPost("page/send", {
-      session_id: state.activeSessionId,
-      message: outboundMessage,
-    });
-    clearComposerEditor();
-    clearPendingUploads();
-    await renderComposerPreview();
-    setStatus(
-      state.status?.login?.user_id
-        ? `QQ ${state.status.login.user_id}`
-        : t("pages.dashboard.status.message_sent", "Message sent")
-    );
-    updateSendAvailability();
-    focusComposer();
-  } catch (error) {
-    setStatus(error.message || t("pages.dashboard.status.send_failed", "Send failed."));
-  } finally {
-    updateSendAvailability();
+  const sessionId = state.activeSessionId;
+  const uploads = [...state.pendingUploads];
+  const outboundMessage = [];
+  const displayMessage = [];
+  const optimisticPreviewUrls = [];
+  const replyId = text(state.composerReplyTarget?.message_id).trim();
+  if (replyId) {
+    const replySegment = {
+      type: "reply",
+      data: {
+        id: replyId,
+      },
+    };
+    outboundMessage.push(replySegment);
+    displayMessage.push(replySegment);
   }
+  outboundMessage.push(...message);
+  displayMessage.push(...message);
+  for (const item of uploads) {
+    const data = { file: item.key };
+    if (item.type === "file" && item.name) {
+      data.name = item.name;
+    }
+    outboundMessage.push({ type: item.type, data });
+
+    const previewUrl =
+      text(item.preview_url).trim() || text(item.url).trim() || text(item.key).trim();
+    const displayData = {
+      file: previewUrl,
+      url: previewUrl,
+    };
+    if (item.name) {
+      displayData.name = item.name;
+    }
+    displayMessage.push({ type: item.type, data: displayData });
+    if (previewUrl.startsWith("blob:")) {
+      optimisticPreviewUrls.push(previewUrl);
+    }
+  }
+  const optimisticMessage = {
+    ...buildOptimisticMessage(sessionId, displayMessage),
+    send_payload: outboundMessage,
+  };
+  if (optimisticPreviewUrls.length) {
+    state.optimisticPreviewUrlsByMessageId.set(
+      optimisticMessage.message_id,
+      optimisticPreviewUrls
+    );
+  }
+  insertOptimisticMessage(optimisticMessage);
+  const pendingIndicatorTimerId = window.setTimeout(() => {
+    updateOptimisticMessage(
+      {
+        sessionId,
+        localMessageId: optimisticMessage.message_id,
+      },
+      "sending"
+    );
+  }, SEND_PENDING_INDICATOR_DELAY_MS);
+  state.sendQueue.push({
+    sessionId,
+    localMessageId: optimisticMessage.message_id,
+    outboundMessage,
+    pendingIndicatorTimerId,
+  });
+  state.pendingUploads = [];
+  clearComposerEditor();
+  await renderComposerPreview();
+  updateSendAvailability();
+  focusComposer();
+  void processSendQueue();
 }
 
 export function bindComposerEvents() {
@@ -983,4 +1212,10 @@ export function bindComposerEvents() {
 
 window.addEventListener("beforeunload", () => {
   clearPendingUploads();
+  for (const previewUrls of state.optimisticPreviewUrlsByMessageId.values()) {
+    for (const previewUrl of previewUrls) {
+      URL.revokeObjectURL(previewUrl);
+    }
+  }
+  state.optimisticPreviewUrlsByMessageId.clear();
 });

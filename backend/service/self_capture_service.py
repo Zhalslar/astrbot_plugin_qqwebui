@@ -62,8 +62,6 @@ class SelfCaptureService:
         params: dict[str, Any],
         result: dict[str, Any],
     ) -> None:
-        print(params)
-        print(result)
         message = params.get("message") or params.get("messages")
         if not message:
             return

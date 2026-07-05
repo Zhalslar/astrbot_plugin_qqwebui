@@ -16,6 +16,7 @@ import { renderSessionList } from "./sidebar.js";
 
 let openSessionHandler = null;
 const MESSAGE_PAGE_LIMIT = 50;
+const LOCAL_MESSAGE_ID_PREFIX = "local:";
 
 export function setOpenSessionHandler(handler) {
   openSessionHandler = handler;
@@ -78,6 +79,60 @@ function getSessionPreview(sessionId) {
   return state.sessions.find((item) => item.session_id === sessionId) || null;
 }
 
+function isOptimisticMessage(item) {
+  return text(item?.message_id).trim().startsWith(LOCAL_MESSAGE_ID_PREFIX);
+}
+
+function revokeOptimisticPreviewUrls(messageId) {
+  const previewUrls = state.optimisticPreviewUrlsByMessageId.get(messageId) || [];
+  for (const previewUrl of previewUrls) {
+    URL.revokeObjectURL(previewUrl);
+  }
+  state.optimisticPreviewUrlsByMessageId.delete(messageId);
+}
+
+function removeFirstOptimisticMessage(sessionId, incomingMessage = null) {
+  const cleanSessionId = text(sessionId).trim();
+  const rows = state.messagesBySession.get(cleanSessionId) || [];
+  const incomingSummary = text(incomingMessage?.summary).trim();
+  let index = -1;
+  for (const preferredStatus of ["sent", "sending", "timeout", ""]) {
+    index = rows.findIndex((item) => {
+      const sendStatus = text(item.send_status).trim();
+      return (
+        isOptimisticMessage(item) &&
+        item.is_self &&
+        sendStatus !== "failed" &&
+        sendStatus === preferredStatus &&
+        (!incomingSummary || text(item.summary).trim() === incomingSummary)
+      );
+    });
+    if (index >= 0) {
+      break;
+    }
+  }
+  if (index < 0) {
+    index = rows.findIndex((item) => {
+      const sendStatus = text(item.send_status).trim();
+      return (
+        isOptimisticMessage(item) &&
+        item.is_self &&
+        (sendStatus === "sent" || sendStatus === "sending" || sendStatus === "")
+      );
+    });
+  }
+  if (index < 0) {
+    return false;
+  }
+  const removed = rows[index];
+  state.messagesBySession.set(cleanSessionId, [
+    ...rows.slice(0, index),
+    ...rows.slice(index + 1),
+  ]);
+  revokeOptimisticPreviewUrls(text(removed.message_id).trim());
+  return true;
+}
+
 function upsertSession(session) {
   if (!session?.session_id) {
     return false;
@@ -118,6 +173,11 @@ function removeSession(sessionId) {
   const cleanSessionId = text(sessionId).trim();
   if (!cleanSessionId) {
     return false;
+  }
+  for (const item of state.messagesBySession.get(cleanSessionId) || []) {
+    if (isOptimisticMessage(item)) {
+      revokeOptimisticPreviewUrls(text(item.message_id).trim());
+    }
   }
   const next = state.sessions.filter((item) => item.session_id !== cleanSessionId);
   const changed = next.length !== state.sessions.length;
@@ -329,7 +389,7 @@ export async function loadMessages(sessionId) {
   const items = Array.isArray(data.items) ? data.items : [];
   const existing = state.messagesBySession.get(sessionId) || [];
   let next = items;
-  if (existing.length > items.length) {
+  if (existing.length > items.length || existing.some((item) => isOptimisticMessage(item))) {
     const seenMessageIds = new Set();
     next = [];
     for (const item of [...items, ...existing]) {
@@ -383,8 +443,16 @@ export async function applyIncomingMessage(payload) {
   if (payload?.session?.session_id) {
     upsertSession(payload.session);
   }
-  const { inserted } = mergeMessage(payload?.message);
-  if (state.activeSessionId === payload?.message?.session_id) {
+  const incomingMessage = payload?.message;
+  if (
+    incomingMessage?.is_self &&
+    incomingMessage?.session_id &&
+    !isOptimisticMessage(incomingMessage)
+  ) {
+    removeFirstOptimisticMessage(incomingMessage.session_id, incomingMessage);
+  }
+  const { inserted } = mergeMessage(incomingMessage);
+  if (state.activeSessionId === incomingMessage?.session_id) {
     renderMessages({
       newMessageCount: inserted && !state.messageListAtBottom ? 1 : 0,
     });
