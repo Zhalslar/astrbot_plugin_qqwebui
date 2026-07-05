@@ -51,10 +51,84 @@ class EventCache:
     def clear_session(self, session_id: str) -> None:
         self._messages.pop(session_id, None)
 
+    def get(self, session_id: str, message_id: str) -> EventRecord | None:
+        """Find a cached event by message id.
+
+        Args:
+            session_id: Session identifier that owns the event.
+            message_id: OneBot message id to find.
+
+        Returns:
+            Cached event record, or None when it is not present.
+        """
+
+        return next(
+            (
+                item
+                for item in self._messages.get(session_id, [])
+                if item.message_id == message_id
+            ),
+            None,
+        )
+
+    def find(self, message_id: str) -> tuple[str, EventRecord] | None:
+        """Find a cached event across all sessions.
+
+        Args:
+            message_id: OneBot message id to find.
+
+        Returns:
+            Tuple of session id and cached event, or None when it is not present.
+        """
+
+        for session_id, rows in self._messages.items():
+            for item in rows:
+                if item.message_id == message_id:
+                    return session_id, item
+        return None
+
     def has_message(self, session_id: str, message_id: str) -> bool:
         return any(
             item.message_id == message_id for item in self._messages.get(session_id, [])
         )
+
+    def remove(self, session_id: str, message_id: str) -> EventRecord | None:
+        """Remove a cached event by message id.
+
+        Args:
+            session_id: Session identifier that owns the event.
+            message_id: OneBot message id to remove.
+
+        Returns:
+            Removed event record, or None when it is not present.
+        """
+
+        rows = self._messages.get(session_id, [])
+        for index, item in enumerate(rows):
+            if item.message_id == message_id:
+                return rows.pop(index)
+        return None
+
+    def mark_recalled(
+        self, session_id: str, message_id: str, *, operator_id: str = ""
+    ) -> EventRecord | None:
+        """Mark a cached event as recalled while keeping its original content.
+
+        Args:
+            session_id: Session identifier that owns the event.
+            message_id: OneBot message id to mark.
+            operator_id: QQ id that performed the recall when known.
+
+        Returns:
+            Updated event record, or None when it is not present.
+        """
+
+        message = self.get(session_id, message_id)
+        if message is None:
+            return None
+        message.recalled = True
+        message.recall_operator_id = operator_id
+        return message
 
     def export_data(self) -> dict[str, list[dict[str, Any]]]:
         return {

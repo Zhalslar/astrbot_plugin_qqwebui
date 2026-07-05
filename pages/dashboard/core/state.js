@@ -12,6 +12,7 @@ export const state = {
   sessionMutePendingIds: new Set(),
   sessionPinPendingIds: new Set(),
   sessionDeletePendingIds: new Set(),
+  messageRecallPendingIds: new Set(),
   searchKeyword: "",
   leftListMode: "sessions",
   pendingUploads: [],

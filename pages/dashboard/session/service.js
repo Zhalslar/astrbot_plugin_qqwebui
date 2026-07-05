@@ -65,6 +65,8 @@ function areMessageListsEqual(left, right) {
       leftItem.time !== rightItem.time ||
       leftItem.message_type !== rightItem.message_type ||
       leftItem.user_id !== rightItem.user_id ||
+      Boolean(leftItem.recalled) !== Boolean(rightItem.recalled) ||
+      leftItem.recall_operator_id !== rightItem.recall_operator_id ||
       JSON.stringify(leftItem.sender || {}) !== JSON.stringify(rightItem.sender || {}) ||
       JSON.stringify(leftItem.notice || {}) !== JSON.stringify(rightItem.notice || {}) ||
       JSON.stringify(leftItem.message || []) !== JSON.stringify(rightItem.message || [])
@@ -188,6 +190,11 @@ function removeSession(sessionId) {
   state.sessionMutePendingIds.delete(cleanSessionId);
   state.sessionPinPendingIds.delete(cleanSessionId);
   state.sessionDeletePendingIds.delete(cleanSessionId);
+  for (const key of Array.from(state.messageRecallPendingIds)) {
+    if (key.startsWith(`${cleanSessionId}\n`)) {
+      state.messageRecallPendingIds.delete(key);
+    }
+  }
   if (state.activeSessionId === cleanSessionId) {
     resetActiveSessionView();
   } else if (changed && openSessionHandler) {
@@ -220,6 +227,48 @@ function mergeMessage(message) {
   const changed = !areMessageListsEqual(existing, next);
   state.messagesBySession.set(message.session_id, next);
   return { changed, inserted: index < 0 };
+}
+
+function applyRecallNotice(message) {
+  const noticeType = text(message?.notice_type || message?.notice?.notice_type).trim();
+  if (!["group_recall", "friend_recall"].includes(noticeType)) {
+    return "";
+  }
+  const sourceMessageId = text(message?.notice?.message_id).trim();
+  if (!sourceMessageId) {
+    return "";
+  }
+  let targetSessionId = text(message?.session_id).trim();
+  let rows = state.messagesBySession.get(targetSessionId) || [];
+  let target = rows.find((item) => text(item.message_id).trim() === sourceMessageId);
+  if (!target) {
+    for (const [sessionId, candidates] of state.messagesBySession.entries()) {
+      target = candidates.find(
+        (item) => text(item.message_id).trim() === sourceMessageId
+      );
+      if (target) {
+        targetSessionId = sessionId;
+        rows = candidates;
+        break;
+      }
+    }
+  }
+  if (!targetSessionId || !target) {
+    return "";
+  }
+  const next = rows.map((item) =>
+    text(item.message_id).trim() === sourceMessageId
+      ? {
+          ...item,
+          recalled: true,
+          recall_operator_id: text(
+            message?.notice?.operator_id || message?.user_id || ""
+          ).trim(),
+        }
+      : item
+  );
+  state.messagesBySession.set(targetSessionId, next);
+  return targetSessionId;
 }
 
 export async function loadSessions() {
@@ -447,12 +496,17 @@ export async function applyIncomingMessage(payload) {
   if (
     incomingMessage?.is_self &&
     incomingMessage?.session_id &&
+    incomingMessage?.post_type === "message" &&
     !isOptimisticMessage(incomingMessage)
   ) {
     removeFirstOptimisticMessage(incomingMessage.session_id, incomingMessage);
   }
+  const recalledSessionId = applyRecallNotice(incomingMessage);
   const { inserted } = mergeMessage(incomingMessage);
-  if (state.activeSessionId === incomingMessage?.session_id) {
+  if (
+    state.activeSessionId === incomingMessage?.session_id ||
+    state.activeSessionId === recalledSessionId
+  ) {
     renderMessages({
       newMessageCount: inserted && !state.messageListAtBottom ? 1 : 0,
     });

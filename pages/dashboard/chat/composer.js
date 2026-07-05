@@ -847,6 +847,134 @@ export function clearComposerEditor() {
   renderEmojiPanel();
 }
 
+export async function restoreComposerFromMessage(item) {
+  const segments = Array.isArray(item?.message) ? item.message : [];
+  if (!segments.length) {
+    setStatus(
+      t("pages.dashboard.status.message_restore_failed", "Unable to restore this message.")
+    );
+    return false;
+  }
+
+  clearPendingUploads();
+  clearComposerEditor();
+
+  const sessionId = text(item.session_id || state.activeSessionId).trim();
+  const restoredUploads = [];
+  const faceIds = [];
+  let restoredEditorContent = false;
+
+  for (const segment of segments) {
+    const segmentType = text(segment?.type).trim().toLowerCase();
+    const data = segment?.data && typeof segment.data === "object" ? segment.data : {};
+
+    if (segmentType === "reply") {
+      const replyId = text(data.id).trim();
+      const quotedMessage = (state.messagesBySession.get(sessionId) || []).find(
+        (row) => text(row.message_id).trim() === replyId
+      );
+      if (quotedMessage) {
+        setComposerReplyTarget(quotedMessage);
+      }
+      continue;
+    }
+
+    if (segmentType === "text") {
+      const value = text(data.text);
+      if (value) {
+        els.composerInput.append(document.createTextNode(value));
+        restoredEditorContent = true;
+      }
+      continue;
+    }
+
+    if (segmentType === "at") {
+      const qq = text(data.qq).trim();
+      if (!qq) {
+        continue;
+      }
+      const name = text(data.name || qq).trim();
+      const token = document.createElement("span");
+      token.className = "composer-mention-token";
+      token.contentEditable = "false";
+      token.dataset.qq = qq;
+      token.dataset.name = name;
+      token.textContent = qq === "all" ? "@all" : name;
+      els.composerInput.append(token, document.createTextNode(" "));
+      restoredEditorContent = true;
+      continue;
+    }
+
+    if (segmentType === "face") {
+      const faceId = text(data.id).trim();
+      if (!faceId) {
+        continue;
+      }
+      const token = document.createElement("span");
+      token.className = "composer-face-token";
+      token.contentEditable = "false";
+      token.dataset.faceId = faceId;
+      const faceUrl = state.qqFaceCache.get(faceId) || "";
+      if (faceUrl) {
+        const img = document.createElement("img");
+        img.alt = t("pages.dashboard.attachments.qq_face_alt", "[QQ Face]");
+        img.src = faceUrl;
+        token.append(img);
+      } else {
+        token.textContent = faceId;
+        faceIds.push(faceId);
+      }
+      els.composerInput.append(token);
+      restoredEditorContent = true;
+      continue;
+    }
+
+    if (["image", "video", "record", "file"].includes(segmentType)) {
+      const source = text(data.file || data.url).trim();
+      if (!source) {
+        continue;
+      }
+      const previewUrl = text(data.url || data.file).trim();
+      const fallbackName = source.startsWith("base64://")
+        ? ""
+        : text(source.split(/[\\/]/).pop()).trim();
+      restoredUploads.push({
+        key: source,
+        url: previewUrl || source,
+        name:
+          text(data.name).trim() ||
+          fallbackName ||
+          pendingUploadKindLabel({ type: segmentType }),
+        type: segmentType,
+        size: Number(data.size || 0) || 0,
+        content_type: text(data.content_type).trim(),
+      });
+    }
+  }
+
+  state.pendingUploads = restoredUploads;
+  normalizeComposerEditor();
+  if (faceIds.length) {
+    void ensureFaceAssets(faceIds, { rerenderMessages: false }).then(() => {
+      for (const faceId of faceIds) {
+        syncComposerFaceToken(faceId);
+      }
+    });
+  }
+  await renderComposerPreview();
+  updateSendAvailability();
+  focusComposer();
+
+  if (!restoredEditorContent && !restoredUploads.length) {
+    setStatus(
+      t("pages.dashboard.status.message_restore_failed", "Unable to restore this message.")
+    );
+    return false;
+  }
+  setStatus(t("pages.dashboard.status.message_restored", "Message restored to composer."));
+  return true;
+}
+
 export function focusComposer() {
   if (els.composerInput.contentEditable !== "true") {
     return;
