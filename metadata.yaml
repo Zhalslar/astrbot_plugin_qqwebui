@@ -7,4 +7,4 @@ author: Zhalslar
 repo: https://github.com/Zhalslar/astrbot_plugin_qqwebui
 support_platforms:
   - aiocqhttp
-astrbot_version: ">=4.24.2"
+astrbot_version: ">=4.26.1"
