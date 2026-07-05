@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from "../core/api.js";
+import { LOCAL_MESSAGE_ID_PREFIX } from "../core/constants.js";
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
 import { renderMarkdownFragment } from "../core/markdown.js";
@@ -15,7 +16,11 @@ import {
 import { state } from "../core/state.js";
 import { avatarUrl, clampText, setAvatar, text } from "../core/utils.js";
 import { buildGroupBadge, findGroupMember } from "../contact/members.js";
-import { focusComposer, setComposerReplyTarget } from "../chat/composer.js";
+import {
+  focusComposer,
+  retryOptimisticMessage,
+  setComposerReplyTarget,
+} from "../chat/composer.js";
 import { openProfileModal } from "../profile/modal.js";
 import { renderSessionList } from "./sidebar.js";
 
@@ -61,7 +66,7 @@ async function refreshSessionMediaCache(sessionId) {
     const items = Array.isArray(data.items) ? data.items : [];
     const existing = state.messagesBySession.get(cleanSessionId) || [];
     let next = items;
-    if (existing.length > items.length) {
+    if (existing.length > items.length || existing.some((item) => isOptimisticMessage(item))) {
       const seenMessageIds = new Set();
       next = [];
       for (const item of [...items, ...existing]) {
@@ -245,6 +250,47 @@ function formatUnreadCount(count) {
 
 function activeItems() {
   return state.messagesBySession.get(state.activeSessionId) || [];
+}
+
+function isOptimisticMessage(item) {
+  return text(item?.message_id).trim().startsWith(LOCAL_MESSAGE_ID_PREFIX);
+}
+
+function buildSendState(item) {
+  const sendStatus = text(item?.send_status).trim();
+  if (!item?.is_self || !sendStatus || sendStatus === "sent") {
+    return null;
+  }
+  const canRetry = sendStatus === "failed" || sendStatus === "timeout";
+  const indicator = document.createElement(canRetry ? "button" : "span");
+  indicator.className = `message-send-state is-${sendStatus}`;
+  if (canRetry) {
+    indicator.type = "button";
+  }
+  if (sendStatus === "sending") {
+    indicator.title = t("pages.dashboard.messages.sending", "Sending...");
+    indicator.setAttribute("aria-label", indicator.title);
+    return indicator;
+  }
+  const fallback =
+    sendStatus === "timeout"
+      ? t(
+          "pages.dashboard.messages.send_timeout",
+          "Send timed out. Delivery status is unknown."
+        )
+      : t("pages.dashboard.messages.send_failed", "Send failed.");
+  const retryHint = t("pages.dashboard.messages.retry_send", "Click to retry.");
+  indicator.title = `${text(item.send_error).trim() || fallback} ${retryHint}`;
+  indicator.setAttribute("aria-label", indicator.title);
+  indicator.textContent = "!";
+  indicator.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!retryOptimisticMessage(item.message_id)) {
+      setStatus(t("pages.dashboard.status.retry_failed", "Unable to retry this message."));
+    }
+  });
+  return indicator;
 }
 
 async function loadOlderMessages() {
@@ -1244,7 +1290,10 @@ export function renderMessages(options = {}) {
     }
 
     const row = document.createElement("article");
-    row.className = `message-item${item.is_self ? " self" : ""}`;
+    const sendStatus = text(item.send_status).trim();
+    row.className = `message-item${item.is_self ? " self" : ""}${
+      isOptimisticMessage(item) ? " is-local" : ""
+    }${sendStatus ? ` is-send-${sendStatus}` : ""}`;
     if (shouldAnimateIncoming && index === items.length - 1) {
       row.classList.add("is-entering");
     }
@@ -1309,7 +1358,14 @@ export function renderMessages(options = {}) {
       meta.append(badge, name);
       stack.append(meta);
     }
-    stack.append(bubble, buildReplyAction(item));
+    stack.append(bubble);
+    if (!isOptimisticMessage(item)) {
+      stack.append(buildReplyAction(item));
+    }
+    const sendState = buildSendState(item);
+    if (sendState) {
+      stack.append(sendState);
+    }
     row.append(avatar, stack);
 
     const segmentBody = buildMessageBody(item);

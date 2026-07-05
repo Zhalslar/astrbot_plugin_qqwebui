@@ -871,6 +871,12 @@ html[data-theme="dark"] .message-notice-user:focus-visible {
   }
 }
 
+@keyframes message-send-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .message-stack {
   position: relative;
   display: flex;
@@ -883,6 +889,57 @@ html[data-theme="dark"] .message-notice-user:focus-visible {
 
 .message-stack.self {
   align-items: flex-end;
+}
+
+.message-send-state {
+  position: absolute;
+  left: -22px;
+  bottom: -2px;
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.message-send-state.is-sending {
+  border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: var(--accent-strong);
+  animation: message-send-spin 0.82s linear infinite;
+}
+
+.message-send-state.is-failed,
+.message-send-state.is-timeout {
+  background: #e03b3b;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(224, 59, 59, 0.28);
+}
+
+button.message-send-state.is-failed,
+button.message-send-state.is-timeout {
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+button.message-send-state.is-failed:hover,
+button.message-send-state.is-failed:focus-visible,
+button.message-send-state.is-timeout:hover,
+button.message-send-state.is-timeout:focus-visible {
+  background: #c92f2f;
+  box-shadow: 0 8px 18px rgba(224, 59, 59, 0.34);
+  transform: translateY(-1px);
+  outline: none;
 }
 
 .bubble {
