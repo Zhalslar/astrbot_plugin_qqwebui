@@ -132,6 +132,8 @@ class SessionService:
         title = self._sync_event_profiles(event)
         if message.post_type == "message":
             self._add_at_name(message)
+        if message.notice_type in {"group_recall", "friend_recall"}:
+            self._apply_recall_notice(message)
         self.store.messages.append(message)
         self.store.sessions.touch_with_event(message, title=title)
         session = self.store.sessions.get(message.session_id)
@@ -214,6 +216,32 @@ class SessionService:
                 continue
             if not data.get("name"):
                 data["name"] = self.store.get_user_name(qq, message.group_id)
+
+    def _apply_recall_notice(self, notice: EventRecord) -> None:
+        """Apply a recall notice to the cached original message.
+
+        Args:
+            notice: Recall notice event that references the original OneBot message id.
+        """
+
+        source_message_id = str(notice.notice.get("message_id", "") or "").strip()
+        if not source_message_id:
+            return
+        target_session_id = notice.session_id
+        original = self.store.messages.get(target_session_id, source_message_id)
+        if original is None:
+            found = self.store.messages.find(source_message_id)
+            if found is None:
+                return
+            target_session_id, original = found
+        operator_id = str(
+            notice.notice.get("operator_id") or notice.user_id or notice.self_id or ""
+        ).strip()
+        self.store.messages.mark_recalled(
+            target_session_id,
+            source_message_id,
+            operator_id=operator_id,
+        )
 
     async def normalize_message_media_urls(self, message: EventRecord) -> None:
         """Replace cached media URLs in the background.

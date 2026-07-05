@@ -78,6 +78,12 @@ class PageController:
             ("/page/face-index", self.page_face_index, ["GET"], "QQ face catalog"),
             ("/page/send", self.page_send, ["POST"], "send message"),
             ("/page/action/poke", self.page_action_poke, ["POST"], "send poke"),
+            (
+                "/page/action/recall",
+                self.page_action_recall,
+                ["POST"],
+                "recall message",
+            ),
             ("/page/media/upload", self.page_media_upload, ["POST"], "upload media"),
             ("/page/faces", self.page_faces, ["GET"], "QQ face assets"),
         ]
@@ -307,6 +313,19 @@ class PageController:
             return self._error(str(exc), 400)
         except Exception as exc:
             logger.exception("[qqwebui] page_action_poke failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_action_recall(self):
+        try:
+            payload = await request.json(default={}) or {}
+            session_id = str(payload.get("session_id", "")).strip()
+            message_id = str(payload.get("message_id", "")).strip()
+            data = await self.actions.recall_message(session_id, message_id)
+            return self._ok(data, "recalled")
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_action_recall failed: %s", exc)
             return self._error(str(exc), 500)
 
     async def page_media_upload(self):

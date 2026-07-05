@@ -104,7 +104,7 @@ class QQWebui(Star):
         await self.self_capture.initialize()
 
         outbound = OutboundService(bot, files)
-        actions = ActionService(bot)
+        actions = ActionService(bot, self.store)
 
         page_controller = PageController(
             self.cfg,

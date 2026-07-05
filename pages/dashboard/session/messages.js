@@ -1,5 +1,8 @@
 import { apiGet, apiPost } from "../core/api.js";
-import { LOCAL_MESSAGE_ID_PREFIX } from "../core/constants.js";
+import {
+  LOCAL_MESSAGE_ID_PREFIX,
+  MESSAGE_RECALL_WINDOW_SECONDS,
+} from "../core/constants.js";
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
 import { renderMarkdownFragment } from "../core/markdown.js";
@@ -18,6 +21,7 @@ import { avatarUrl, clampText, setAvatar, text } from "../core/utils.js";
 import { buildGroupBadge, findGroupMember } from "../contact/members.js";
 import {
   focusComposer,
+  restoreComposerFromMessage,
   retryOptimisticMessage,
   setComposerReplyTarget,
 } from "../chat/composer.js";
@@ -28,6 +32,7 @@ const MESSAGE_BOTTOM_THRESHOLD = 24;
 const MESSAGE_EXIT_CURSOR_THRESHOLD = 8;
 const MESSAGE_TIME_DIVIDER_THRESHOLD = 120;
 const MESSAGE_PAGE_LIMIT = 50;
+const RECALL_OPTIMISTIC_HIDE_DELAY_MS = 180;
 let mediaPreviewOpen = false;
 let mediaPreviewType = "";
 let mediaPreviewImageScale = 1;
@@ -254,6 +259,143 @@ function activeItems() {
 
 function isOptimisticMessage(item) {
   return text(item?.message_id).trim().startsWith(LOCAL_MESSAGE_ID_PREFIX);
+}
+
+function roleRank(role) {
+  return { owner: 3, admin: 2, member: 1 }[text(role).trim().toLowerCase()] || 0;
+}
+
+function messageRecallKey(item) {
+  return `${text(item?.session_id || state.activeSessionId).trim()}\n${text(
+    item?.message_id
+  ).trim()}`;
+}
+
+function canRecallMessage(item) {
+  const messageId = text(item?.message_id).trim();
+  const selfId = text(state.status?.login?.user_id).trim();
+  if (
+    !item ||
+    item.post_type !== "message" ||
+    item.recalled ||
+    isOptimisticMessage(item) ||
+    text(item.send_status).trim() ||
+    !/^\d+$/.test(messageId) ||
+    !selfId ||
+    state.messageRecallPendingIds.has(messageRecallKey(item))
+  ) {
+    return false;
+  }
+
+  const isOwnMessage = item.is_self || text(item.user_id).trim() === selfId;
+  const selfRole = text(
+    findGroupMember(selfId)?.role || (isOwnMessage ? item.sender?.role : "")
+  ).trim().toLowerCase();
+  const messageAge = Math.floor(Date.now() / 1000) - Number(item.time || 0);
+  if (isOwnMessage) {
+    if (item.message_type === "group" && roleRank(selfRole) >= 2) {
+      return true;
+    }
+    return messageAge <= MESSAGE_RECALL_WINDOW_SECONDS;
+  }
+  if (item.message_type === "private") {
+    return false;
+  }
+  if (item.message_type !== "group") {
+    return false;
+  }
+
+  const targetRole = text(
+    item.sender?.role || findGroupMember(item.user_id)?.role
+  ).trim().toLowerCase();
+  return roleRank(selfRole) > roleRank(targetRole) && roleRank(targetRole) > 0;
+}
+
+function applyLocalRecall(sessionId, messageId) {
+  const cleanSessionId = text(sessionId).trim();
+  const cleanMessageId = text(messageId).trim();
+  const rows = state.messagesBySession.get(cleanSessionId) || [];
+  const target = rows.find((item) => text(item.message_id).trim() === cleanMessageId);
+  if (!target) {
+    return false;
+  }
+  const next = rows.map((item) =>
+    text(item.message_id).trim() === cleanMessageId
+      ? {
+          ...item,
+          recalled: true,
+          recall_operator_id: text(state.status?.login?.user_id).trim(),
+        }
+      : item
+  );
+  state.messagesBySession.set(cleanSessionId, next);
+  if (state.activeSessionId === cleanSessionId) {
+    renderMessages();
+  }
+  return true;
+}
+
+async function recallMessage(item) {
+  const sessionId = text(item?.session_id || state.activeSessionId).trim();
+  const messageId = text(item?.message_id).trim();
+  const recallKey = messageRecallKey(item);
+  if (!sessionId || !messageId || state.messageRecallPendingIds.has(recallKey)) {
+    return;
+  }
+  const previousTarget = (state.messagesBySession.get(sessionId) || []).find(
+    (row) => text(row.message_id).trim() === messageId
+  );
+  if (!previousTarget) {
+    return;
+  }
+  state.messageRecallPendingIds.add(recallKey);
+  renderMessages();
+  let localRecallApplied = false;
+  const hideTimerId = window.setTimeout(() => {
+    localRecallApplied = applyLocalRecall(sessionId, messageId);
+  }, RECALL_OPTIMISTIC_HIDE_DELAY_MS);
+  try {
+    await apiPost("page/action/recall", {
+      session_id: sessionId,
+      message_id: messageId,
+    });
+    if (!localRecallApplied) {
+      window.clearTimeout(hideTimerId);
+      localRecallApplied = applyLocalRecall(sessionId, messageId);
+    }
+    setStatus(t("pages.dashboard.status.message_recalled", "Message recalled."));
+  } catch (error) {
+    window.clearTimeout(hideTimerId);
+    const rows = state.messagesBySession.get(sessionId) || [];
+    let restored = false;
+    const next = rows.map((row) => {
+      if (text(row.message_id).trim() !== messageId) {
+        return row;
+      }
+      restored = true;
+      return previousTarget;
+    });
+    if (!restored) {
+      next.push(previousTarget);
+      next.sort((left, right) => {
+        const timeDiff = Number(left.time || 0) - Number(right.time || 0);
+        if (timeDiff !== 0) {
+          return timeDiff;
+        }
+        return text(left.message_id).localeCompare(text(right.message_id));
+      });
+    }
+    state.messagesBySession.set(sessionId, next);
+    setStatus(
+      error?.message ||
+        t("pages.dashboard.status.message_recall_failed", "Failed to recall message.")
+    );
+  } finally {
+    state.messageRecallPendingIds.delete(recallKey);
+    if (state.activeSessionId === sessionId) {
+      renderMessages();
+    }
+  }
 }
 
 function buildSendState(item) {
@@ -773,6 +915,61 @@ function noticeText(item) {
   if (noticeType === "friend_add") {
     return formatNoticeTemplate("friend_add", { user });
   }
+  if (noticeType === "group_recall" || noticeType === "friend_recall") {
+    const selfId = text(state.status?.login?.user_id).trim();
+    const sourceMessageId = text(payload.message_id).trim();
+    const recalledUserId = text(payload.user_id || item.user_id).trim();
+    const operatorId = text(
+      payload.operator_id || (noticeType === "friend_recall" ? recalledUserId : "")
+    ).trim();
+    if (
+      selfId &&
+      sourceMessageId &&
+      recalledUserId === selfId &&
+      (!operatorId || operatorId === selfId)
+    ) {
+      const action = document.createElement("button");
+      action.type = "button";
+      action.className = "message-notice-user";
+      action.textContent = t("pages.dashboard.notices.reedit", "Re-edit");
+      action.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const sessionId = text(item.session_id || state.activeSessionId).trim();
+        let recalledMessage = (state.messagesBySession.get(sessionId) || []).find(
+          (row) => text(row.message_id).trim() === sourceMessageId
+        );
+        if (!recalledMessage) {
+          for (const rows of state.messagesBySession.values()) {
+            recalledMessage = rows.find(
+              (row) => text(row.message_id).trim() === sourceMessageId
+            );
+            if (recalledMessage) {
+              break;
+            }
+          }
+        }
+        void restoreComposerFromMessage(recalledMessage);
+      });
+      return [
+        document.createTextNode(
+          t(
+            "pages.dashboard.notices.self_recall",
+            "You recalled a message. "
+          )
+        ),
+        action,
+      ];
+    }
+    if (
+      noticeType === "group_recall" &&
+      recalledUserId &&
+      operatorId &&
+      recalledUserId === operatorId
+    ) {
+      return formatNoticeTemplate("group_self_recall", { user });
+    }
+  }
   if (noticeType === "group_recall") {
     return formatNoticeTemplate("group_recall", { user, operator });
   }
@@ -807,6 +1004,22 @@ function buildReplyAction(item) {
     event.stopPropagation();
     setComposerReplyTarget(item);
     focusComposer();
+  });
+  return button;
+}
+
+function buildRecallAction(item) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "message-recall-action";
+  button.title = t("pages.dashboard.messages.recall", "Recall");
+  button.setAttribute("aria-label", button.title);
+  button.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.7a.8.8 0 0 1 .8.8v2.1h5.6a5.1 5.1 0 1 1 0 10.2H8.6a.8.8 0 0 1 0-1.6h6.8a3.5 3.5 0 1 0 0-7H9.8v2.1a.8.8 0 0 1-1.36.56l-3-2.9a.8.8 0 0 1 0-1.12l3-2.9A.8.8 0 0 1 9 3.7Z" fill="currentColor"></path></svg>';
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void recallMessage(item);
   });
   return button;
 }
@@ -1267,8 +1480,17 @@ export function renderMessages(options = {}) {
   els.messageListContent.dataset.sessionId = state.activeSessionId;
   els.messageListContent.replaceChildren();
   const fragment = document.createDocumentFragment();
+  const selfId = text(state.status?.login?.user_id).trim();
   let previousMessageTime = 0;
   for (const [index, item] of items.entries()) {
+    if (
+      item.post_type !== "notice" &&
+      item.recalled &&
+      selfId &&
+      text(item.recall_operator_id).trim() === selfId
+    ) {
+      continue;
+    }
     const messageTime = Number(item.time || 0);
     if (
       messageTime > 0 &&
@@ -1291,9 +1513,12 @@ export function renderMessages(options = {}) {
 
     const row = document.createElement("article");
     const sendStatus = text(item.send_status).trim();
+    const isRecalling = state.messageRecallPendingIds.has(messageRecallKey(item));
     row.className = `message-item${item.is_self ? " self" : ""}${
       isOptimisticMessage(item) ? " is-local" : ""
-    }${sendStatus ? ` is-send-${sendStatus}` : ""}`;
+    }${sendStatus ? ` is-send-${sendStatus}` : ""}${item.recalled ? " is-recalled" : ""}${
+      isRecalling ? " is-recalling" : ""
+    }`;
     if (shouldAnimateIncoming && index === items.length - 1) {
       row.classList.add("is-entering");
     }
@@ -1332,6 +1557,8 @@ export function renderMessages(options = {}) {
 
     const bubble = document.createElement("div");
     bubble.className = singleMediaOnly ? "bubble bubble-media-only" : "bubble";
+    const bubbleFrame = document.createElement("div");
+    bubbleFrame.className = "message-bubble-frame";
     const stack = document.createElement("div");
     stack.className = `message-stack${item.is_self ? " self" : ""}`;
 
@@ -1358,10 +1585,14 @@ export function renderMessages(options = {}) {
       meta.append(badge, name);
       stack.append(meta);
     }
-    stack.append(bubble);
-    if (!isOptimisticMessage(item)) {
-      stack.append(buildReplyAction(item));
+    bubbleFrame.append(bubble);
+    if (!isOptimisticMessage(item) && !item.recalled) {
+      bubbleFrame.append(buildReplyAction(item));
     }
+    if (canRecallMessage(item)) {
+      bubbleFrame.append(buildRecallAction(item));
+    }
+    stack.append(bubbleFrame);
     const sendState = buildSendState(item);
     if (sendState) {
       stack.append(sendState);

@@ -285,6 +285,8 @@ class EventRecord:
     summary: str = ""
     notice_type: str = ""
     notice: dict[str, Any] = field(default_factory=dict)
+    recalled: bool = False
+    recall_operator_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -304,6 +306,8 @@ class EventRecord:
             "summary": self.summary,
             "notice_type": self.notice_type,
             "notice": self.notice,
+            "recalled": self.recalled,
+            "recall_operator_id": self.recall_operator_id,
         }
 
     @classmethod
@@ -338,6 +342,8 @@ class EventRecord:
             summary=str(data.get("summary", "")),
             notice_type=str(data.get("notice_type", "")),
             notice=dict(notice),
+            recalled=bool(data.get("recalled", False)),
+            recall_operator_id=str(data.get("recall_operator_id", "")),
         )
 
 
