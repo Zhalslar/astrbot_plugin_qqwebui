@@ -1,8 +1,11 @@
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
+import { startInlineTextEdit } from "../core/inline-edit.js";
+import { setStatus } from "../core/status.js";
 import { state } from "../core/state.js";
 import { avatarUrl, setAvatar, text } from "../core/utils.js";
 import { openProfileModal } from "../profile/modal.js";
+import { saveGroupName } from "./group-actions.js";
 
 let contactOpenHandler = null;
 
@@ -82,6 +85,36 @@ export function renderContactList(openSession) {
     main.className = "contact-main";
     const title = document.createElement("strong");
     title.textContent = contact.title;
+    if (contact.message_type === "group") {
+      title.classList.add("inline-edit-trigger");
+      title.title = t("pages.dashboard.groups.edit_name", "Double-click to edit group name");
+      title.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+      title.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        startInlineTextEdit(title, {
+          value: text(contact.title || contact.target_id).trim(),
+          placeholder: t("pages.dashboard.groups.name_placeholder", "Group name"),
+          onSave: async (nextName) => {
+            setStatus(t("pages.dashboard.status.updating_group_name", "Updating group name..."));
+            const savedName = await saveGroupName(contact.target_id, nextName);
+            setStatus(t("pages.dashboard.status.group_name_updated", "Group name updated."));
+            return savedName;
+          },
+          onError: (error) => {
+            setStatus(
+              error?.message ||
+                t(
+                  "pages.dashboard.status.group_name_failed",
+                  "Failed to update group name."
+                )
+            );
+          },
+        });
+      });
+    }
     const summary = document.createElement("span");
     summary.textContent =
       contact.summary ||

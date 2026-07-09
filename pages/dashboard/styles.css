@@ -524,6 +524,44 @@ textarea {
   text-overflow: ellipsis;
 }
 
+.inline-edit-trigger {
+  cursor: text;
+}
+
+.inline-edit-trigger:hover {
+  color: var(--accent-strong);
+}
+
+.inline-edit-trigger.is-inline-editing,
+.inline-edit-trigger.is-inline-saving {
+  overflow: visible;
+}
+
+.inline-edit-input {
+  display: block;
+  width: 100%;
+  min-width: 80px;
+  max-width: 100%;
+  margin: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--surface-strong);
+  color: var(--text);
+  font: inherit;
+  line-height: inherit;
+  outline: none;
+}
+
+.inline-edit-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.is-inline-saving .inline-edit-input {
+  opacity: 0.72;
+}
+
 .session-meta {
   position: absolute;
   top: 8px;
@@ -771,6 +809,7 @@ textarea {
   flex-direction: row-reverse;
 }
 
+.message-item .avatar.is-profile-clickable,
 .message-item .avatar.is-pokable {
   cursor: pointer;
 }
@@ -2571,6 +2610,10 @@ html[data-theme="dark"] .profile-tag.is-title {
   .chat-panel,
   .detail-panel {
     min-height: 360px;
+  }
+
+  .detail-panel {
+    display: none;
   }
 
   body {

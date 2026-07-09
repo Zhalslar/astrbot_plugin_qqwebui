@@ -2,9 +2,11 @@ import { apiGet, apiPost } from "../core/api.js";
 import {
   LOCAL_MESSAGE_ID_PREFIX,
   MESSAGE_RECALL_WINDOW_SECONDS,
+  QQWEBUI_MENTION_DRAG_MIME,
 } from "../core/constants.js";
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
+import { startInlineTextEdit } from "../core/inline-edit.js";
 import { renderMarkdownFragment } from "../core/markdown.js";
 import { setStatus } from "../core/status.js";
 import {
@@ -18,6 +20,13 @@ import {
 } from "../core/media.js";
 import { state } from "../core/state.js";
 import { avatarUrl, clampText, setAvatar, text } from "../core/utils.js";
+import {
+  canEditGroupCards,
+  canEditGroupSpecialTitles,
+  saveGroupMemberCard,
+  saveGroupName,
+  saveGroupSpecialTitle,
+} from "../contact/group-actions.js";
 import { buildGroupBadge, findGroupMember } from "../contact/members.js";
 import {
   focusComposer,
@@ -51,6 +60,7 @@ const mediaRefreshPendingSessionIds = new Set();
 const mediaRefreshAttemptKeys = new Set();
 const pokeCooldownKeys = new Set();
 const forwardFetchPromises = new Map();
+const AVATAR_PROFILE_CLICK_DELAY_MS = 300;
 
 function forwardTitle() {
   return t("pages.dashboard.forward.title", "合并转发消息");
@@ -104,6 +114,28 @@ export async function fetchHistoryMessages(sessionId, messageSeq = "0") {
 
 function activeSession() {
   return state.sessions.find((item) => item.session_id === state.activeSessionId) || null;
+}
+
+function groupSessionTitle(session, titleOverride = null) {
+  const sessionTitle = text(titleOverride ?? session?.title ?? state.activeSessionId).trim();
+  if (session?.message_type !== "group") {
+    return sessionTitle;
+  }
+  const memberCount =
+    session.member_count != null ? Number(session.member_count) : state.groupMembers.length;
+  return memberCount > 0 ? `${sessionTitle}(${memberCount})` : sessionTitle;
+}
+
+function renderChatTitle(session) {
+  if (els.chatTitle.dataset.inlineEditing === "true") {
+    return;
+  }
+  els.chatTitle.textContent = groupSessionTitle(session);
+  const editable = session?.message_type === "group" && canEditGroupCards();
+  els.chatTitle.classList.toggle("inline-edit-trigger", editable);
+  els.chatTitle.title = editable
+    ? t("pages.dashboard.groups.edit_name", "Double-click to edit group name")
+    : "";
 }
 
 function isTokenMediaUrl(url) {
@@ -1709,22 +1741,93 @@ function buildMessageRow(item, options = {}) {
   }
   row.dataset.messageId = text(item.message_id).trim();
   const member = item.message_type === "group" ? findGroupMember(item.user_id) : null;
+  const userId = text(item.user_id || item.sender?.user_id).trim();
+  const avatarDisplayName =
+    text(
+      item.sender?.card ||
+        member?.card ||
+        item.sender?.nickname ||
+        member?.nickname ||
+        item.user_id
+    ).trim() || userId;
 
   const avatar = document.createElement("div");
   avatar.className = "avatar";
-  setAvatar(
-    avatar,
-    avatarUrl(item.user_id, "private"),
-    text(item.sender?.card || item.sender?.nickname || item.user_id)
-      .slice(0, 1)
-      .toUpperCase()
-  );
+  setAvatar(avatar, avatarUrl(userId, "private"), avatarDisplayName.slice(0, 1).toUpperCase());
+  let avatarProfileTimerId = 0;
+  if (/^\d+$/.test(userId)) {
+    avatar.classList.add("is-profile-clickable");
+    avatar.title = t("pages.dashboard.profile.open", "Open profile");
+    avatar.tabIndex = 0;
+    avatar.setAttribute("role", "button");
+    avatar.setAttribute("aria-label", avatar.title);
+    const openAvatarProfile = () => {
+      const cleanGroupId = text(item.group_id).trim();
+      const groupId =
+        item.message_type === "group" && /^\d+$/.test(cleanGroupId) ? cleanGroupId : "";
+      void openProfileModal({
+        userId,
+        groupId,
+        displayName: avatarDisplayName,
+        nickname: item.sender?.nickname || member?.nickname,
+        isFriend: item.message_type === "private",
+        role: text(item.sender?.role || member?.role).trim().toLowerCase(),
+        title: text(member?.title).trim(),
+      });
+    };
+    avatar.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.detail > 1) {
+        return;
+      }
+      if (!allowPoke) {
+        openAvatarProfile();
+        return;
+      }
+      if (avatarProfileTimerId) {
+        window.clearTimeout(avatarProfileTimerId);
+      }
+      avatarProfileTimerId = window.setTimeout(() => {
+        avatarProfileTimerId = 0;
+        openAvatarProfile();
+      }, AVATAR_PROFILE_CLICK_DELAY_MS);
+    });
+    avatar.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      openAvatarProfile();
+    });
+    const cleanGroupId = text(item.group_id).trim();
+    if (item.message_type === "group" && /^\d+$/.test(cleanGroupId)) {
+      avatar.draggable = true;
+      avatar.addEventListener("dragstart", (event) => {
+        event.stopPropagation();
+        event.dataTransfer.effectAllowed = "copy";
+        event.dataTransfer.setData(
+          QQWEBUI_MENTION_DRAG_MIME,
+          JSON.stringify({
+            user_id: userId,
+            name: avatarDisplayName,
+            group_id: cleanGroupId,
+          })
+        );
+        event.dataTransfer.setData("text/plain", `@${avatarDisplayName}`);
+      });
+    }
+  }
   if (allowPoke) {
     avatar.classList.add("is-pokable");
-    avatar.title = t("pages.dashboard.actions.poke", "Poke");
     avatar.addEventListener("dblclick", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (avatarProfileTimerId) {
+        window.clearTimeout(avatarProfileTimerId);
+        avatarProfileTimerId = 0;
+      }
       void sendAvatarPoke(avatar, item);
     });
   }
@@ -1762,6 +1865,12 @@ function buildMessageRow(item, options = {}) {
   stack.className = `message-stack${item.is_self ? " self" : ""}`;
 
   if (showSenderMeta || item.message_type === "group") {
+    const cleanGroupId = text(item.group_id).trim();
+    const canEditMemberMeta =
+      showActions &&
+      item.message_type === "group" &&
+      /^\d+$/.test(cleanGroupId) &&
+      /^\d+$/.test(userId);
     const badgeMeta = buildGroupBadge({
       ...member,
       role: item.sender?.role || member?.role,
@@ -1779,11 +1888,74 @@ function buildMessageRow(item, options = {}) {
       item.is_self ? " self" : ""
     }`;
     badge.textContent = badgeMeta.text;
+    if (canEditMemberMeta && canEditGroupSpecialTitles()) {
+      badge.classList.add("inline-edit-trigger");
+      badge.title = t(
+        "pages.dashboard.members.edit_special_title",
+        "Double-click to edit special title"
+      );
+      badge.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        startInlineTextEdit(badge, {
+          value: text(member?.title).trim(),
+          allowEmpty: true,
+          placeholder: t("pages.dashboard.members.special_title_placeholder", "Special title"),
+          onSave: async (nextTitle) => {
+            setStatus(
+              t("pages.dashboard.status.updating_special_title", "Updating special title...")
+            );
+            const savedTitle = await saveGroupSpecialTitle(cleanGroupId, userId, nextTitle);
+            setStatus(
+              t("pages.dashboard.status.special_title_updated", "Special title updated.")
+            );
+            return savedTitle || buildGroupBadge({ ...member, title: "" }).text;
+          },
+          onError: (error) => {
+            setStatus(
+              error?.message ||
+                t(
+                  "pages.dashboard.status.special_title_failed",
+                  "Failed to update special title."
+                )
+            );
+          },
+        });
+      });
+    }
 
     const name = document.createElement("div");
     name.className = `bubble-name${item.is_self ? " self" : ""}`;
     name.textContent =
       badgeMeta.name || item.sender?.card || item.sender?.nickname || item.user_id;
+    if (canEditMemberMeta && canEditGroupCards()) {
+      name.classList.add("inline-edit-trigger");
+      name.title = t("pages.dashboard.members.edit_card", "Double-click to edit group card");
+      name.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        startInlineTextEdit(name, {
+          value: text(member?.card || item.sender?.card || name.textContent).trim(),
+          allowEmpty: true,
+          placeholder: t("pages.dashboard.members.card_placeholder", "Group card"),
+          onSave: async (nextCard) => {
+            setStatus(t("pages.dashboard.status.updating_group_card", "Updating group card..."));
+            const savedCard = await saveGroupMemberCard(cleanGroupId, userId, nextCard);
+            setStatus(t("pages.dashboard.status.group_card_updated", "Group card updated."));
+            return savedCard || text(member?.nickname || item.sender?.nickname || userId).trim();
+          },
+          onError: (error) => {
+            setStatus(
+              error?.message ||
+                t(
+                  "pages.dashboard.status.group_card_failed",
+                  "Failed to update group card."
+                )
+            );
+          },
+        });
+      });
+    }
     meta.append(badge, name);
     stack.append(meta);
   }
@@ -1917,6 +2089,33 @@ function buildMessageRow(item, options = {}) {
 }
 
 export function bindMessageEvents() {
+  els.chatTitle.addEventListener("dblclick", (event) => {
+    const session = activeSession();
+    if (session?.message_type !== "group" || !canEditGroupCards()) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    startInlineTextEdit(els.chatTitle, {
+      value: text(session.title || session.target_id).trim(),
+      placeholder: t("pages.dashboard.groups.name_placeholder", "Group name"),
+      onSave: async (nextName) => {
+        setStatus(t("pages.dashboard.status.updating_group_name", "Updating group name..."));
+        const savedName = await saveGroupName(session.target_id, nextName);
+        setStatus(t("pages.dashboard.status.group_name_updated", "Group name updated."));
+        return groupSessionTitle({ ...session, title: savedName }, savedName);
+      },
+      onError: (error) => {
+        setStatus(
+          error?.message ||
+            t(
+              "pages.dashboard.status.group_name_failed",
+              "Failed to update group name."
+            )
+        );
+      },
+    });
+  });
   els.messageList.addEventListener("scroll", () => {
     if (els.messageList.scrollTop <= 8) {
       void loadOlderMessages();
@@ -2103,14 +2302,7 @@ export function renderMessages(options = {}) {
     previousScrollTop = 0,
   } = options;
   const session = activeSession();
-  const sessionTitle = session?.title || state.activeSessionId;
-  if (session?.message_type === "group") {
-    const memberCount =
-      session.member_count != null ? Number(session.member_count) : state.groupMembers.length;
-    els.chatTitle.textContent = memberCount > 0 ? `${sessionTitle}(${memberCount})` : sessionTitle;
-  } else {
-    els.chatTitle.textContent = sessionTitle;
-  }
+  renderChatTitle(session);
   const items = state.messagesBySession.get(state.activeSessionId) || [];
   const previousListScrollTop = els.messageList.scrollTop;
   const shouldStickToBottom = forceScrollToBottom || isMessageListNearBottom();

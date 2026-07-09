@@ -1,8 +1,22 @@
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
+import { startInlineTextEdit } from "../core/inline-edit.js";
+import { setStatus } from "../core/status.js";
 import { state } from "../core/state.js";
 import { avatarUrl, setAvatar, text } from "../core/utils.js";
 import { openProfileModal } from "../profile/modal.js";
+import {
+  canEditGroupCards,
+  canEditGroupSpecialTitles,
+  saveGroupMemberCard,
+  saveGroupSpecialTitle,
+} from "./group-actions.js";
+
+let memberOpenSessionHandler = null;
+
+export function setGroupMemberOpenSessionHandler(handler) {
+  memberOpenSessionHandler = typeof handler === "function" ? handler : null;
+}
 
 function roleBadgeLabel(role) {
   if (role === "owner") {
@@ -52,10 +66,13 @@ export function renderGroupMembers() {
   }
   els.memberList.className = "member-list";
   els.memberList.replaceChildren();
+  const canEditCards = canEditGroupCards();
+  const canEditTitles = canEditGroupSpecialTitles();
   for (const member of state.groupMembers) {
     const row = document.createElement("div");
     row.className = "member-item";
     const displayName = text(member.card || member.nickname || member.user_id).trim();
+    const badgeMeta = buildGroupBadge(member);
     const avatarButton = document.createElement("button");
     avatarButton.type = "button";
     avatarButton.className = "avatar-button";
@@ -80,12 +97,97 @@ export function renderGroupMembers() {
     avatarButton.append(avatar);
     const main = document.createElement("div");
     main.className = "member-main";
+    main.addEventListener("dblclick", (event) => {
+      const userId = text(member.user_id).trim();
+      if (!userId || !memberOpenSessionHandler) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void memberOpenSessionHandler(`private:${userId}`);
+    });
     const title = document.createElement("strong");
     title.textContent = displayName;
+    if (canEditCards) {
+      title.classList.add("inline-edit-trigger");
+      title.title = t("pages.dashboard.members.edit_card", "Double-click to edit group card");
+      title.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        startInlineTextEdit(title, {
+          value: text(member.card || displayName).trim(),
+          allowEmpty: true,
+          placeholder: t("pages.dashboard.members.card_placeholder", "Group card"),
+          onSave: async (nextCard) => {
+            setStatus(t("pages.dashboard.status.updating_group_card", "Updating group card..."));
+            const savedCard = await saveGroupMemberCard(
+              session.target_id,
+              member.user_id,
+              nextCard
+            );
+            setStatus(t("pages.dashboard.status.group_card_updated", "Group card updated."));
+            return savedCard || text(member.nickname || member.user_id).trim();
+          },
+          onError: (error) => {
+            setStatus(
+              error?.message ||
+                t(
+                  "pages.dashboard.status.group_card_failed",
+                  "Failed to update group card."
+                )
+            );
+          },
+        });
+      });
+    }
     const subtitle = document.createElement("span");
     subtitle.textContent = t("pages.dashboard.members.item_meta", "{role} - QQ {id}")
-      .replace("{role}", roleBadgeLabel(text(member.role).trim().toLowerCase()))
+      .replace("{role}", badgeMeta.text)
       .replace("{id}", String(member.user_id));
+    if (canEditTitles) {
+      subtitle.classList.add("inline-edit-trigger");
+      subtitle.title = t(
+        "pages.dashboard.members.edit_special_title",
+        "Double-click to edit special title"
+      );
+      subtitle.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        startInlineTextEdit(subtitle, {
+          value: text(member.title).trim(),
+          allowEmpty: true,
+          placeholder: t("pages.dashboard.members.special_title_placeholder", "Special title"),
+          onSave: async (nextTitle) => {
+            setStatus(
+              t("pages.dashboard.status.updating_special_title", "Updating special title...")
+            );
+            const savedTitle = await saveGroupSpecialTitle(
+              session.target_id,
+              member.user_id,
+              nextTitle
+            );
+            setStatus(
+              t("pages.dashboard.status.special_title_updated", "Special title updated.")
+            );
+            return t("pages.dashboard.members.item_meta", "{role} - QQ {id}")
+              .replace(
+                "{role}",
+                savedTitle || roleBadgeLabel(text(member.role).trim().toLowerCase())
+              )
+              .replace("{id}", String(member.user_id));
+          },
+          onError: (error) => {
+            setStatus(
+              error?.message ||
+                t(
+                  "pages.dashboard.status.special_title_failed",
+                  "Failed to update special title."
+                )
+            );
+          },
+        });
+      });
+    }
     main.append(title, subtitle);
     row.append(avatarButton, main);
     els.memberList.append(row);

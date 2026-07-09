@@ -92,6 +92,24 @@ class PageController:
             ("/page/send", self.page_send, ["POST"], "send message"),
             ("/page/action/poke", self.page_action_poke, ["POST"], "send poke"),
             (
+                "/page/action/group-name",
+                self.page_action_group_name,
+                ["POST"],
+                "set group name",
+            ),
+            (
+                "/page/action/group-card",
+                self.page_action_group_card,
+                ["POST"],
+                "set group card",
+            ),
+            (
+                "/page/action/group-special-title",
+                self.page_action_group_special_title,
+                ["POST"],
+                "set group special title",
+            ),
+            (
                 "/page/action/recall",
                 self.page_action_recall,
                 ["POST"],
@@ -372,6 +390,54 @@ class PageController:
             return self._error(str(exc), 400)
         except Exception as exc:
             logger.exception("[qqwebui] page_action_poke failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_action_group_name(self):
+        try:
+            payload = await request.json(default={}) or {}
+            group_id = str(payload.get("group_id", "")).strip()
+            group_name = str(payload.get("group_name", "")).strip()
+            data = await self.actions.set_group_name(group_id, group_name)
+            return self._ok(data, "updated")
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_action_group_name failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_action_group_card(self):
+        try:
+            payload = await request.json(default={}) or {}
+            group_id = str(payload.get("group_id", "")).strip()
+            user_id = str(payload.get("user_id", "")).strip()
+            card = str(payload.get("card", "")).strip()
+            data = await self.actions.set_group_card(group_id, user_id, card)
+            return self._ok(data, "updated")
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_action_group_card failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_action_group_special_title(self):
+        try:
+            payload = await request.json(default={}) or {}
+            group_id = str(payload.get("group_id", "")).strip()
+            user_id = str(payload.get("user_id", "")).strip()
+            special_title = str(payload.get("special_title", "")).strip()
+            data = await self.actions.set_group_special_title(
+                group_id,
+                user_id,
+                special_title,
+            )
+            return self._ok(data, "updated")
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception(
+                "[qqwebui] page_action_group_special_title failed: %s",
+                exc,
+            )
             return self._error(str(exc), 500)
 
     async def page_action_recall(self):
