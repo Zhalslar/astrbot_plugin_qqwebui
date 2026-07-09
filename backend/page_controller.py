@@ -50,6 +50,18 @@ class PageController:
             ("/page/status", self.page_status, ["GET"], "status"),
             ("/page/sessions", self.page_sessions, ["GET"], "sessions"),
             ("/page/messages", self.page_messages, ["GET"], "messages"),
+            (
+                "/page/history/group",
+                self.page_group_history,
+                ["GET"],
+                "group message history",
+            ),
+            (
+                "/page/history/friend",
+                self.page_friend_history,
+                ["GET"],
+                "friend message history",
+            ),
             ("/page/events", self.page_events, ["GET"], "SSE updates"),
             ("/page/view", self.page_view, ["POST"], "sync session view"),
             ("/page/session/mute", self.page_session_mute, ["POST"], "mute session"),
@@ -140,6 +152,38 @@ class PageController:
             return self._error(str(exc), 400)
         except Exception as exc:
             logger.exception("[qqwebui] page_messages failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_group_history(self):
+        try:
+            args = request.query
+            data = await self.sessions.fetch_history(
+                "group",
+                str(args.get("group_id", "")).strip(),
+                message_seq=int(str(args.get("message_seq", "0")).strip() or "0"),
+                count=int(str(args.get("count", "50")).strip() or "50"),
+            )
+            return self._ok(data)
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_group_history failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_friend_history(self):
+        try:
+            args = request.query
+            data = await self.sessions.fetch_history(
+                "private",
+                str(args.get("user_id", "")).strip(),
+                message_seq=int(str(args.get("message_seq", "0")).strip() or "0"),
+                count=int(str(args.get("count", "50")).strip() or "50"),
+            )
+            return self._ok(data)
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_friend_history failed: %s", exc)
             return self._error(str(exc), 500)
 
     async def page_events(self):

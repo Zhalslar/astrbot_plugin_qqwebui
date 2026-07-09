@@ -99,7 +99,7 @@ class QQWebui(Star):
         status = StatusService(self.cfg, bot, self.store)
         contacts = ContactService(self.cfg, bot, self.store)
         await contacts.refresh_self()
-        sessions = SessionService(self.store, self.sse, files)
+        sessions = SessionService(bot, self.store, self.sse, files)
 
         self.inbound = InboundService(self.cfg, bot, self.store, sessions)
         await self.inbound.initialize()

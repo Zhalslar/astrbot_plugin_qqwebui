@@ -49,6 +49,37 @@ const mediaRefreshPendingSessionIds = new Set();
 const mediaRefreshAttemptKeys = new Set();
 const pokeCooldownKeys = new Set();
 
+export async function fetchHistoryMessages(sessionId, messageSeq = "0") {
+  const cleanSessionId = text(sessionId).trim();
+  const separatorIndex = cleanSessionId.indexOf(":");
+  const messageType = separatorIndex >= 0 ? cleanSessionId.slice(0, separatorIndex) : "";
+  const targetId = separatorIndex >= 0 ? cleanSessionId.slice(separatorIndex + 1) : "";
+  const cleanMessageSeq = text(messageSeq).trim() || "0";
+  if (!targetId || !["group", "private"].includes(messageType)) {
+    return {
+      items: [],
+      session: null,
+      nextMessageSeq: cleanMessageSeq,
+      hasMore: false,
+    };
+  }
+
+  const data = await apiGet(
+    messageType === "group" ? "page/history/group" : "page/history/friend",
+    {
+      [messageType === "group" ? "group_id" : "user_id"]: targetId,
+      message_seq: cleanMessageSeq,
+      count: MESSAGE_PAGE_LIMIT,
+    }
+  );
+  return {
+    items: Array.isArray(data.items) ? data.items : [],
+    session: data.session && typeof data.session === "object" ? data.session : null,
+    nextMessageSeq: text(data.next_message_seq || cleanMessageSeq).trim(),
+    hasMore: Boolean(data.has_more),
+  };
+}
+
 function activeSession() {
   return state.sessions.find((item) => item.session_id === state.activeSessionId) || null;
 }
@@ -466,12 +497,39 @@ async function loadOlderMessages() {
     if (state.activeSessionId !== sessionId) {
       return;
     }
-    const olderItems = Array.isArray(data.items) ? data.items : [];
+    let olderItems = Array.isArray(data.items) ? data.items : [];
+    let historySession = data.session;
+    let hasMoreOlder = olderItems.length > 0;
+    let remoteMessageSeq = text(history.remoteMessageSeq).trim();
+    let remoteHistoryQueried = false;
+    if (!olderItems.length) {
+      const cursorItem = items.find((item) =>
+        /^-?\d+$/.test(text(item?.message_id).trim())
+      );
+      const messageSeq = remoteMessageSeq || text(cursorItem?.message_id).trim() || "0";
+      const historyData = await fetchHistoryMessages(sessionId, messageSeq);
+      remoteHistoryQueried = true;
+      if (state.activeSessionId !== sessionId) {
+        return;
+      }
+      olderItems = historyData.items;
+      historySession = historyData.session || historySession;
+      remoteMessageSeq = historyData.nextMessageSeq || messageSeq;
+      hasMoreOlder =
+        historyData.hasMore ||
+        Boolean(olderItems.length && remoteMessageSeq && remoteMessageSeq !== messageSeq);
+    }
     const nextHistory = {
       ...(state.messageHistoryBySession.get(sessionId) || {}),
-      hasMoreOlder: olderItems.length >= MESSAGE_PAGE_LIMIT,
+      hasMoreOlder,
       loadingOlder: false,
     };
+    if (remoteMessageSeq) {
+      nextHistory.remoteMessageSeq = remoteMessageSeq;
+    }
+    if (remoteHistoryQueried) {
+      nextHistory.remoteHistoryExhausted = !hasMoreOlder;
+    }
     state.messageHistoryBySession.set(sessionId, nextHistory);
     if (!olderItems.length) {
       return;
@@ -495,10 +553,10 @@ async function loadOlderMessages() {
       return text(left.message_id).localeCompare(text(right.message_id));
     });
     state.messagesBySession.set(sessionId, next);
-    if (data.session && typeof data.session === "object") {
+    if (historySession && typeof historySession === "object") {
       const target = state.sessions.find((item) => item.session_id === sessionId);
       if (target) {
-        Object.assign(target, data.session);
+        Object.assign(target, historySession);
         renderSessionList();
       }
     }
