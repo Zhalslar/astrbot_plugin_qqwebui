@@ -12,7 +12,12 @@ import {
 } from "../chat/composer.js";
 import { loadGroupMembers } from "../contact/service.js";
 import { renderGroupMembers } from "../contact/members.js";
-import { rememberActiveSessionExitCursor, renderMessages } from "./messages.js";
+import {
+  fetchHistoryMessages,
+  hydrateForwardCache,
+  rememberActiveSessionExitCursor,
+  renderMessages,
+} from "./messages.js";
 import { renderSessionList } from "./sidebar.js";
 
 let openSessionHandler = null;
@@ -83,6 +88,10 @@ function getSessionPreview(sessionId) {
 
 function isOptimisticMessage(item) {
   return text(item?.message_id).trim().startsWith(LOCAL_MESSAGE_ID_PREFIX);
+}
+
+function hasNumericMessageId(items) {
+  return items.some((item) => /^-?\d+$/.test(text(item?.message_id).trim()));
 }
 
 function revokeOptimisticPreviewUrls(messageId) {
@@ -435,7 +444,15 @@ export async function loadMessages(sessionId) {
     session_id: sessionId,
     limit: MESSAGE_PAGE_LIMIT,
   });
-  const items = Array.isArray(data.items) ? data.items : [];
+  hydrateForwardCache(data.forward_cache);
+  let items = Array.isArray(data.items) ? data.items : [];
+  let historyData = null;
+  if (!items.length) {
+    try {
+      historyData = await fetchHistoryMessages(sessionId, "0");
+      items = historyData.items;
+    } catch {}
+  }
   const existing = state.messagesBySession.get(sessionId) || [];
   let next = items;
   if (existing.length > items.length || existing.some((item) => isOptimisticMessage(item))) {
@@ -460,16 +477,25 @@ export async function loadMessages(sessionId) {
   const changed = !areMessageListsEqual(existing, next);
   state.messagesBySession.set(sessionId, next);
   const history = state.messageHistoryBySession.get(sessionId) || {};
-  state.messageHistoryBySession.set(sessionId, {
+  const nextHistory = {
     ...history,
     hasMoreOlder:
-      existing.length > items.length
+      historyData !== null
+        ? historyData.hasMore ||
+          Boolean(historyData.items.length && historyData.nextMessageSeq !== "0")
+        : existing.length > items.length
         ? history.hasMoreOlder !== false
-        : items.length >= MESSAGE_PAGE_LIMIT,
+        : items.length >= MESSAGE_PAGE_LIMIT ||
+          (hasNumericMessageId(items) && !history.remoteHistoryExhausted),
     loadingOlder: false,
-  });
-  if (data.session) {
-    upsertSession(data.session);
+  };
+  if (historyData?.nextMessageSeq) {
+    nextHistory.remoteMessageSeq = historyData.nextMessageSeq;
+  }
+  state.messageHistoryBySession.set(sessionId, nextHistory);
+  const session = data.session || historyData?.session;
+  if (session) {
+    upsertSession(session);
   }
   updateSendAvailability();
   if (state.activeSessionId === sessionId && (!existing.length || changed)) {
@@ -489,6 +515,7 @@ export async function applyIncomingSession(session) {
 }
 
 export async function applyIncomingMessage(payload) {
+  hydrateForwardCache(payload?.forward_cache);
   if (payload?.session?.session_id) {
     upsertSession(payload.session);
   }
@@ -532,7 +559,8 @@ export async function openSession(sessionId) {
     state.messagesBySession.set(sessionId, cachedRecent);
   }
   state.messageHistoryBySession.set(sessionId, {
-    hasMoreOlder: cached.length >= MESSAGE_PAGE_LIMIT,
+    hasMoreOlder:
+      cached.length >= MESSAGE_PAGE_LIMIT || hasNumericMessageId(cachedRecent),
     loadingOlder: false,
   });
   const session = getSessionPreview(sessionId);

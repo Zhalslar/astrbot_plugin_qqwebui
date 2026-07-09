@@ -1032,6 +1032,12 @@ button.message-send-state.is-timeout:focus-visible {
   box-shadow: none;
 }
 
+.bubble-forward-only {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .bubble-meta {
   display: flex;
   align-items: center;
@@ -1304,6 +1310,104 @@ button.message-send-state.is-timeout:focus-visible {
   font-size: 0.78rem;
   line-height: 1.4;
   word-break: break-word;
+}
+
+.bubble-forward {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: min(360px, 100%);
+  max-width: 100%;
+  margin: 4px 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  color: inherit;
+  box-shadow: 0 12px 24px rgba(91, 67, 39, 0.1);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.bubble-forward:hover,
+.bubble-forward:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--surface-strong) 86%, var(--accent-soft) 14%);
+  box-shadow: 0 14px 28px rgba(91, 67, 39, 0.13);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.bubble-forward-only .bubble-forward {
+  margin: 0;
+}
+
+.bubble-forward.is-error {
+  border-color: color-mix(in srgb, #d94343 42%, transparent);
+}
+
+.bubble-forward.is-disabled,
+.bubble-forward:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.bubble-forward.is-disabled:hover,
+.bubble-forward:disabled:hover {
+  box-shadow: none;
+  transform: none;
+}
+
+.bubble-forward-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+  color: var(--accent-strong);
+}
+
+.bubble-forward-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.bubble-forward.is-loading .bubble-forward-icon {
+  animation: session-state-pulse 780ms ease-in-out infinite alternate;
+}
+
+.bubble-forward-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.bubble-forward-title {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.bubble-forward-meta,
+.bubble-forward-summary {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.bubble-forward-summary {
+  margin-top: 4px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .attachment-row {
@@ -2265,6 +2369,148 @@ html[data-theme="dark"] .profile-tag.is-title {
   color: #fff;
 }
 
+.forward-preview-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.forward-preview-modal.is-hidden {
+  display: none;
+}
+
+.forward-preview-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(18, 16, 14, 0.58);
+  backdrop-filter: blur(10px);
+}
+
+.forward-preview-card {
+  position: relative;
+  z-index: 1;
+  width: min(880px, calc(100vw - 36px));
+  height: min(760px, calc(100vh - 36px));
+  min-height: min(520px, calc(100vh - 36px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--modal-bg);
+  box-shadow: 0 28px 80px rgba(40, 28, 18, 0.28);
+}
+
+.forward-preview-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 62px;
+  padding: 12px 64px;
+  border-bottom: 1px solid var(--border);
+  background: var(--modal-header-bg);
+}
+
+.forward-preview-back,
+.forward-preview-close {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+.forward-preview-back:hover,
+.forward-preview-back:focus-visible,
+.forward-preview-close:hover,
+.forward-preview-close:focus-visible {
+  transform: translateY(-50%);
+}
+
+.forward-preview-back {
+  left: 16px;
+}
+
+.forward-preview-back svg {
+  width: 18px;
+  height: 18px;
+}
+
+.forward-preview-heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+  align-items: center;
+  text-align: center;
+}
+
+.forward-preview-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forward-preview-heading span {
+  display: none;
+}
+
+.forward-preview-close {
+  right: 16px;
+}
+
+.forward-preview-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  background: var(--modal-body-bg);
+}
+
+.forward-preview-body.empty-state {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  text-align: center;
+}
+
+.forward-message-list {
+  min-height: auto;
+  padding-bottom: 0;
+}
+
+.forward-message-list .message-stack {
+  max-width: min(78%, 680px);
+}
+
+.forward-message-list .message-item .avatar {
+  width: 34px;
+  height: 34px;
+  font-size: 0.8rem;
+}
+
+.forward-preview-error {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 360px;
+  line-height: 1.45;
+}
+
+.forward-preview-retry {
+  min-height: 34px;
+  padding: 8px 14px;
+}
+
 @keyframes profile-refresh-spin {
   from {
     transform: rotate(0deg);
@@ -2334,6 +2580,43 @@ html[data-theme="dark"] .profile-tag.is-title {
 
   .bubble {
     max-width: 88%;
+  }
+
+  .message-stack,
+  .forward-message-list .message-stack {
+    max-width: min(88%, 100%);
+  }
+
+  .bubble-forward {
+    width: min(280px, 100%);
+  }
+
+  .forward-preview-modal {
+    padding: 10px;
+  }
+
+  .forward-preview-card {
+    width: 100%;
+    height: calc(100vh - 20px);
+    min-height: 0;
+    border-radius: 20px;
+  }
+
+  .forward-preview-header {
+    min-height: 58px;
+    padding: 10px 54px;
+  }
+
+  .forward-preview-back {
+    left: 12px;
+  }
+
+  .forward-preview-close {
+    right: 12px;
+  }
+
+  .forward-preview-body {
+    padding: 12px;
   }
 
   .composer-input-row {

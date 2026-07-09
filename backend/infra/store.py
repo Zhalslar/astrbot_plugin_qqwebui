@@ -143,6 +143,61 @@ class EventCache:
             self.append(EventRecord.from_dict(row))
 
 
+class ForwardCache:
+    """Keep normalized merged-forward messages by forward ID."""
+
+    def __init__(self, max_items: int = 128) -> None:
+        self._max_items = max_items
+        self._items: dict[str, list[EventRecord]] = {}
+
+    def get(self, forward_id: str) -> list[EventRecord] | None:
+        """Return cached forward records.
+
+        Args:
+            forward_id: OneBot merged forward ID.
+
+        Returns:
+            Cached records, or None when the forward is unknown.
+        """
+
+        clean_forward_id = str(forward_id).strip()
+        if not clean_forward_id:
+            return None
+        return self._items.get(clean_forward_id)
+
+    def upsert(self, forward_id: str, rows: list[EventRecord]) -> None:
+        """Store normalized records for a merged forward message.
+
+        Args:
+            forward_id: OneBot merged forward ID.
+            rows: Normalized records inside the forward message.
+        """
+
+        clean_forward_id = str(forward_id).strip()
+        if not clean_forward_id:
+            return
+        self._items.pop(clean_forward_id, None)
+        self._items[clean_forward_id] = rows
+        while len(self._items) > self._max_items:
+            self._items.pop(next(iter(self._items)))
+
+    def export_data(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            forward_id: [item.to_dict() for item in rows]
+            for forward_id, rows in self._items.items()
+        }
+
+    def load_data(self, rows_by_forward_id: dict[str, Any]) -> None:
+        self._items.clear()
+        for forward_id, rows in rows_by_forward_id.items():
+            if not isinstance(rows, list):
+                continue
+            self.upsert(
+                str(forward_id),
+                [EventRecord.from_dict(row) for row in rows if isinstance(row, dict)],
+            )
+
+
 class SessionCache:
     """Store conversation summaries and read cursors."""
 
@@ -513,6 +568,7 @@ class QQWebuiStore:
     def __init__(self, cfg: PluginConfig):
         self.cfg = cfg
         self.messages = EventCache(self.cfg.session_message_limit)
+        self.forward_messages = ForwardCache()
         self.sessions = SessionCache()
         self.contacts = ContactCache()
         self.media_tokens = MediaTokenCache()
@@ -527,6 +583,7 @@ class QQWebuiStore:
             "last_active_session_id": self.last_active_session_id,
             "media_token_entries": self.media_tokens.export_data(),
             **self.messages.export_data(),
+            "forward_messages": self.forward_messages.export_data(),
             **self.sessions.export_data(),
             "contacts": self.contacts.export_data(),
         }
@@ -542,6 +599,9 @@ class QQWebuiStore:
         self.messages.load_data(
             [row for row in data.get("messages", []) if isinstance(row, dict)]
         )
+        raw_forward_messages = data.get("forward_messages", {})
+        if isinstance(raw_forward_messages, dict):
+            self.forward_messages.load_data(raw_forward_messages)
         self.sessions.load_data(
             [row for row in data.get("sessions", []) if isinstance(row, dict)]
         )

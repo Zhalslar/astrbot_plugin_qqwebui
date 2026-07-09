@@ -33,6 +33,8 @@ const MESSAGE_EXIT_CURSOR_THRESHOLD = 8;
 const MESSAGE_TIME_DIVIDER_THRESHOLD = 120;
 const MESSAGE_PAGE_LIMIT = 50;
 const RECALL_OPTIMISTIC_HIDE_DELAY_MS = 180;
+const MAX_FORWARD_DEPTH = 6;
+const MAX_FORWARD_FETCH = 32;
 let mediaPreviewOpen = false;
 let mediaPreviewType = "";
 let mediaPreviewImageScale = 1;
@@ -48,6 +50,57 @@ let mediaPreviewDragOriginY = 0;
 const mediaRefreshPendingSessionIds = new Set();
 const mediaRefreshAttemptKeys = new Set();
 const pokeCooldownKeys = new Set();
+const forwardFetchPromises = new Map();
+
+function forwardTitle() {
+  return t("pages.dashboard.forward.title", "合并转发消息");
+}
+
+export function hydrateForwardCache(forwardCache) {
+  if (!forwardCache || typeof forwardCache !== "object") {
+    return;
+  }
+  for (const [forwardId, items] of Object.entries(forwardCache)) {
+    const cleanForwardId = text(forwardId).trim();
+    if (!cleanForwardId || !Array.isArray(items)) {
+      continue;
+    }
+    state.forwardMessagesById.set(cleanForwardId, items);
+    state.forwardErrorById.delete(cleanForwardId);
+  }
+}
+
+export async function fetchHistoryMessages(sessionId, messageSeq = "0") {
+  const cleanSessionId = text(sessionId).trim();
+  const separatorIndex = cleanSessionId.indexOf(":");
+  const messageType = separatorIndex >= 0 ? cleanSessionId.slice(0, separatorIndex) : "";
+  const targetId = separatorIndex >= 0 ? cleanSessionId.slice(separatorIndex + 1) : "";
+  const cleanMessageSeq = text(messageSeq).trim() || "0";
+  if (!targetId || !["group", "private"].includes(messageType)) {
+    return {
+      items: [],
+      session: null,
+      nextMessageSeq: cleanMessageSeq,
+      hasMore: false,
+    };
+  }
+
+  const data = await apiGet(
+    messageType === "group" ? "page/history/group" : "page/history/friend",
+    {
+      [messageType === "group" ? "group_id" : "user_id"]: targetId,
+      message_seq: cleanMessageSeq,
+      count: MESSAGE_PAGE_LIMIT,
+    }
+  );
+  hydrateForwardCache(data.forward_cache);
+  return {
+    items: Array.isArray(data.items) ? data.items : [],
+    session: data.session && typeof data.session === "object" ? data.session : null,
+    nextMessageSeq: text(data.next_message_seq || cleanMessageSeq).trim(),
+    hasMore: Boolean(data.has_more),
+  };
+}
 
 function activeSession() {
   return state.sessions.find((item) => item.session_id === state.activeSessionId) || null;
@@ -68,6 +121,7 @@ async function refreshSessionMediaCache(sessionId) {
       session_id: cleanSessionId,
       limit: MESSAGE_PAGE_LIMIT,
     });
+    hydrateForwardCache(data.forward_cache);
     const items = Array.isArray(data.items) ? data.items : [];
     const existing = state.messagesBySession.get(cleanSessionId) || [];
     let next = items;
@@ -152,7 +206,9 @@ function closeMediaPreview() {
   els.mediaPreviewModal.classList.add("is-hidden");
   els.mediaPreviewModal.setAttribute("aria-hidden", "true");
   els.mediaPreviewBody.replaceChildren();
-  document.body.classList.remove("has-modal-open");
+  if (!state.forwardModalOpen) {
+    document.body.classList.remove("has-modal-open");
+  }
 }
 
 function openMediaPreview({ type, url, name }) {
@@ -202,6 +258,247 @@ function openMediaPreview({ type, url, name }) {
   });
   els.mediaPreviewBody.append(img);
   applyMediaPreviewImageScale();
+}
+
+async function fetchForwardMessages(forwardId) {
+  const cleanForwardId = text(forwardId).trim();
+  if (!cleanForwardId) {
+    return [];
+  }
+  if (state.forwardMessagesById.has(cleanForwardId)) {
+    return state.forwardMessagesById.get(cleanForwardId) || [];
+  }
+  if (forwardFetchPromises.has(cleanForwardId)) {
+    return forwardFetchPromises.get(cleanForwardId);
+  }
+  if (
+    state.forwardModalOpen &&
+    state.forwardModalFetchCount >= MAX_FORWARD_FETCH
+  ) {
+    const message = t(
+      "pages.dashboard.forward.fetch_limit",
+      "Forwarded message loading limit reached."
+    );
+    state.forwardErrorById.set(cleanForwardId, message);
+    renderForwardPreviewModal();
+    throw new Error(message);
+  }
+  if (state.forwardModalOpen) {
+    state.forwardModalFetchCount += 1;
+  }
+
+  state.forwardLoadingIds.add(cleanForwardId);
+  state.forwardErrorById.delete(cleanForwardId);
+  renderForwardPreviewModal();
+
+  const promise = apiGet("page/forward", { id: cleanForwardId })
+    .then((data) => {
+      hydrateForwardCache(data.forward_cache);
+      const items = Array.isArray(data.items) ? data.items : [];
+      state.forwardMessagesById.set(cleanForwardId, items);
+      state.forwardErrorById.delete(cleanForwardId);
+      return items;
+    })
+    .catch((error) => {
+      state.forwardErrorById.set(
+        cleanForwardId,
+        error?.message ||
+          t("pages.dashboard.forward.load_failed", "Failed to load forwarded messages.")
+      );
+      throw error;
+    })
+    .finally(() => {
+      state.forwardLoadingIds.delete(cleanForwardId);
+      forwardFetchPromises.delete(cleanForwardId);
+      renderForwardPreviewModal();
+      if (state.activeSessionId) {
+        renderMessages();
+      }
+    });
+  forwardFetchPromises.set(cleanForwardId, promise);
+  return promise;
+}
+
+function forwardSummaryLines(items) {
+  const lines = [];
+  for (const item of items) {
+    const senderName = text(
+      item?.sender?.card || item?.sender?.nickname || item?.user_id
+    ).trim();
+    const summary = text(item?.summary)
+      .trim()
+      .replace(/^[^:]{1,64}:\s*/, "");
+    if (!summary) {
+      continue;
+    }
+    lines.push(clampText(`${senderName ? `${senderName}: ` : ""}${summary}`, 90));
+    if (lines.length >= 3) {
+      break;
+    }
+  }
+  return lines;
+}
+
+function closeForwardPreview() {
+  state.forwardModalOpen = false;
+  state.forwardModalStack = [];
+  state.forwardModalFetchCount = 0;
+  els.forwardPreviewModal.classList.add("is-hidden");
+  els.forwardPreviewModal.setAttribute("aria-hidden", "true");
+  els.forwardPreviewBody.replaceChildren();
+  if (!mediaPreviewOpen) {
+    document.body.classList.remove("has-modal-open");
+  }
+}
+
+function openForwardPreview(forwardId, options = {}) {
+  const cleanForwardId = text(forwardId).trim();
+  if (!cleanForwardId) {
+    return;
+  }
+  const nested = Boolean(options.nested && state.forwardModalOpen);
+  if (!nested) {
+    state.forwardModalStack = [];
+    state.forwardModalFetchCount = 0;
+  }
+  const existingIndex = state.forwardModalStack.findIndex(
+    (item) => item.id === cleanForwardId
+  );
+  if (existingIndex >= 0) {
+    state.forwardModalStack = state.forwardModalStack.slice(0, existingIndex + 1);
+  } else {
+    if (nested && state.forwardModalStack.length >= MAX_FORWARD_DEPTH) {
+      setStatus(
+        t(
+          "pages.dashboard.forward.depth_limit",
+          "Forwarded message nesting is too deep."
+        )
+      );
+      return;
+    }
+    state.forwardModalStack.push({
+      id: cleanForwardId,
+      title:
+        text(options.title).trim() ||
+        forwardTitle(),
+    });
+  }
+  state.forwardModalOpen = true;
+  els.forwardPreviewModal.classList.remove("is-hidden");
+  els.forwardPreviewModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("has-modal-open");
+  renderForwardPreviewModal();
+  void fetchForwardMessages(cleanForwardId).catch((error) => {
+    setStatus(
+      error?.message ||
+        t("pages.dashboard.forward.load_failed", "Failed to load forwarded messages.")
+    );
+  });
+}
+
+function renderForwardPreviewModal() {
+  if (!state.forwardModalOpen || !els.forwardPreviewModal) {
+    return;
+  }
+  const current = state.forwardModalStack.at(-1);
+  const currentId = text(current?.id).trim();
+  els.forwardPreviewBackBtn.classList.toggle(
+    "is-hidden",
+    state.forwardModalStack.length <= 1
+  );
+  els.forwardPreviewTitle.textContent =
+    current?.title || forwardTitle();
+  const items = state.forwardMessagesById.get(currentId) || [];
+  const loading = state.forwardLoadingIds.has(currentId);
+  const error = state.forwardErrorById.get(currentId) || "";
+  els.forwardPreviewMeta.textContent = items.length
+    ? t("pages.dashboard.forward.count", "{count} messages").replace(
+        "{count}",
+        String(items.length)
+      )
+    : currentId
+      ? `#${currentId}`
+      : "";
+  els.forwardPreviewBody.replaceChildren();
+
+  if (error && !items.length) {
+    els.forwardPreviewBody.className = "forward-preview-body empty-state";
+    const errorBox = document.createElement("div");
+    errorBox.className = "forward-preview-error";
+    const message = document.createElement("span");
+    message.textContent = error;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "primary-button forward-preview-retry";
+    retry.textContent = t("pages.dashboard.forward.retry", "Retry");
+    retry.addEventListener("click", () => {
+      state.forwardErrorById.delete(currentId);
+      void fetchForwardMessages(currentId).catch((retryError) => {
+        setStatus(
+          retryError?.message ||
+            t("pages.dashboard.forward.load_failed", "Failed to load forwarded messages.")
+        );
+      });
+    });
+    errorBox.append(message, retry);
+    els.forwardPreviewBody.append(errorBox);
+    return;
+  }
+
+  if (loading && !items.length) {
+    els.forwardPreviewBody.className = "forward-preview-body empty-state";
+    els.forwardPreviewBody.textContent = t(
+      "pages.dashboard.forward.loading",
+      "Loading forwarded messages..."
+    );
+    return;
+  }
+
+  if (!items.length) {
+    els.forwardPreviewBody.className = "forward-preview-body empty-state";
+    els.forwardPreviewBody.textContent = t(
+      "pages.dashboard.forward.empty",
+      "No forwarded messages to display."
+    );
+    return;
+  }
+
+  els.forwardPreviewBody.className = "forward-preview-body";
+  const list = document.createElement("div");
+  list.className = "forward-message-list message-list-content";
+  let previousMessageTime = 0;
+  for (const item of items) {
+    const messageTime = Number(item.time || 0);
+    if (
+      messageTime > 0 &&
+      (!previousMessageTime ||
+        messageTime - previousMessageTime >= MESSAGE_TIME_DIVIDER_THRESHOLD)
+    ) {
+      const dividerText = formatMessageTimeDivider(messageTime);
+      if (dividerText) {
+        list.append(buildMessageNotice(dividerText));
+      }
+    }
+    previousMessageTime = messageTime || previousMessageTime;
+    if (item.post_type === "notice") {
+      const content = noticeText(item);
+      if (content) {
+        list.append(buildMessageNotice(content));
+      }
+      continue;
+    }
+    list.append(
+      buildMessageRow(item, {
+        allowPoke: false,
+        autoScrollAfterMediaLoad: false,
+        deferMediaRefresh: false,
+        forwardDepth: state.forwardModalStack.length,
+        showActions: false,
+        showSenderMeta: true,
+      })
+    );
+  }
+  els.forwardPreviewBody.append(list);
 }
 
 export async function ensureFaceAssets(faceIds, options = {}) {
@@ -463,15 +760,43 @@ async function loadOlderMessages() {
       before,
       limit: MESSAGE_PAGE_LIMIT,
     });
+    hydrateForwardCache(data.forward_cache);
     if (state.activeSessionId !== sessionId) {
       return;
     }
-    const olderItems = Array.isArray(data.items) ? data.items : [];
+    let olderItems = Array.isArray(data.items) ? data.items : [];
+    let historySession = data.session;
+    let hasMoreOlder = olderItems.length > 0;
+    let remoteMessageSeq = text(history.remoteMessageSeq).trim();
+    let remoteHistoryQueried = false;
+    if (!olderItems.length) {
+      const cursorItem = items.find((item) =>
+        /^-?\d+$/.test(text(item?.message_id).trim())
+      );
+      const messageSeq = remoteMessageSeq || text(cursorItem?.message_id).trim() || "0";
+      const historyData = await fetchHistoryMessages(sessionId, messageSeq);
+      remoteHistoryQueried = true;
+      if (state.activeSessionId !== sessionId) {
+        return;
+      }
+      olderItems = historyData.items;
+      historySession = historyData.session || historySession;
+      remoteMessageSeq = historyData.nextMessageSeq || messageSeq;
+      hasMoreOlder =
+        historyData.hasMore ||
+        Boolean(olderItems.length && remoteMessageSeq && remoteMessageSeq !== messageSeq);
+    }
     const nextHistory = {
       ...(state.messageHistoryBySession.get(sessionId) || {}),
-      hasMoreOlder: olderItems.length >= MESSAGE_PAGE_LIMIT,
+      hasMoreOlder,
       loadingOlder: false,
     };
+    if (remoteMessageSeq) {
+      nextHistory.remoteMessageSeq = remoteMessageSeq;
+    }
+    if (remoteHistoryQueried) {
+      nextHistory.remoteHistoryExhausted = !hasMoreOlder;
+    }
     state.messageHistoryBySession.set(sessionId, nextHistory);
     if (!olderItems.length) {
       return;
@@ -495,10 +820,10 @@ async function loadOlderMessages() {
       return text(left.message_id).localeCompare(text(right.message_id));
     });
     state.messagesBySession.set(sessionId, next);
-    if (data.session && typeof data.session === "object") {
+    if (historySession && typeof historySession === "object") {
       const target = state.sessions.find((item) => item.session_id === sessionId);
       if (target) {
-        Object.assign(target, data.session);
+        Object.assign(target, historySession);
         renderSessionList();
       }
     }
@@ -1102,11 +1427,12 @@ function handleMessageBoundary(deltaY) {
   return false;
 }
 
-function buildMessageBody(item) {
+function buildMessageBody(item, options = {}) {
   const segments = Array.isArray(item?.message) ? item.message : [];
   if (!segments.length) {
     return null;
   }
+  const forwardDepth = Number(options.forwardDepth || 0);
   const body = document.createElement("div");
   body.className = "bubble-text bubble-text-segments markdown-content";
   let hasContent = false;
@@ -1189,12 +1515,109 @@ function buildMessageBody(item) {
     return preview;
   }
 
+  function buildForwardPreview(segment) {
+    const forwardId = text(segment?.data?.id || segment?.data?.message_id).trim();
+    if (!forwardId) {
+      return null;
+    }
+    const cachedItems = state.forwardMessagesById.get(forwardId) || [];
+    const loading = state.forwardLoadingIds.has(forwardId);
+    const error = state.forwardErrorById.get(forwardId) || "";
+    const depthLimited = forwardDepth >= MAX_FORWARD_DEPTH;
+    if (
+      forwardDepth === 0 &&
+      !state.forwardModalOpen &&
+      !cachedItems.length &&
+      !loading &&
+      !error &&
+      !depthLimited
+    ) {
+      void fetchForwardMessages(forwardId).catch(() => {});
+    }
+    const preview = document.createElement("button");
+    preview.type = "button";
+    preview.className = "bubble-forward";
+    preview.title = t("pages.dashboard.forward.open", "Open forwarded messages");
+    if (loading) {
+      preview.classList.add("is-loading");
+    }
+    if (error) {
+      preview.classList.add("is-error");
+    }
+    if (depthLimited) {
+      preview.classList.add("is-disabled");
+      preview.disabled = true;
+      preview.title = t(
+        "pages.dashboard.forward.depth_limit",
+        "Forwarded message nesting is too deep."
+      );
+    }
+
+    const icon = document.createElement("span");
+    icon.className = "bubble-forward-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10"></path><path d="M7 12h7"></path><path d="M7 17h5"></path><path d="M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-5l-4 3v-3H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"></path></svg>';
+    const content = document.createElement("span");
+    content.className = "bubble-forward-content";
+    const title = document.createElement("span");
+    title.className = "bubble-forward-title";
+    title.textContent = forwardTitle();
+    const meta = document.createElement("span");
+    meta.className = "bubble-forward-meta";
+    if (error) {
+      meta.textContent = t("pages.dashboard.forward.load_failed", "Failed to load forwarded messages.");
+    } else if (depthLimited) {
+      meta.textContent = t(
+        "pages.dashboard.forward.depth_limit",
+        "Forwarded message nesting is too deep."
+      );
+    } else if (loading) {
+      meta.textContent = t("pages.dashboard.forward.loading", "Loading forwarded messages...");
+    } else if (cachedItems.length) {
+      meta.textContent = "";
+    } else {
+      meta.textContent = t("pages.dashboard.forward.click_to_view", "Click to view");
+    }
+    content.append(title);
+    if (meta.textContent) {
+      content.append(meta);
+    }
+
+    const summaryLines = cachedItems.length ? forwardSummaryLines(cachedItems) : [];
+    if (summaryLines.length) {
+      const summary = document.createElement("span");
+      summary.className = "bubble-forward-summary";
+      summary.textContent = summaryLines.join("\n");
+      content.append(summary);
+    }
+    preview.append(icon, content);
+    preview.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openForwardPreview(forwardId, {
+        nested: state.forwardModalOpen && forwardDepth > 0,
+        title: forwardTitle(),
+      });
+    });
+    return preview;
+  }
+
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index];
     const type = text(segment?.type).trim().toLowerCase();
     if (type === "reply") {
       flushTextBuffer();
       const preview = buildReplyPreview(segment);
+      if (preview) {
+        body.append(preview);
+        hasContent = true;
+      }
+      continue;
+    }
+    if (type === "forward" || type === "forward_msg") {
+      flushTextBuffer();
+      const preview = buildForwardPreview(segment);
       if (preview) {
         body.append(preview);
         hasContent = true;
@@ -1261,6 +1684,236 @@ function mediaSegmentsOf(item) {
       isAudioSegment(segment) ||
       isFileSegment(segment)
   );
+}
+
+function buildMessageRow(item, options = {}) {
+  const {
+    allowPoke = true,
+    animate = false,
+    autoScrollAfterMediaLoad = false,
+    deferMediaRefresh = true,
+    forwardDepth = 0,
+    showActions = true,
+    showSenderMeta = false,
+  } = options;
+  const row = document.createElement("article");
+  const sendStatus = text(item.send_status).trim();
+  const isRecalling = state.messageRecallPendingIds.has(messageRecallKey(item));
+  row.className = `message-item${item.is_self ? " self" : ""}${
+    isOptimisticMessage(item) ? " is-local" : ""
+  }${sendStatus ? ` is-send-${sendStatus}` : ""}${item.recalled ? " is-recalled" : ""}${
+    isRecalling ? " is-recalling" : ""
+  }`;
+  if (animate) {
+    row.classList.add("is-entering");
+  }
+  row.dataset.messageId = text(item.message_id).trim();
+  const member = item.message_type === "group" ? findGroupMember(item.user_id) : null;
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  setAvatar(
+    avatar,
+    avatarUrl(item.user_id, "private"),
+    text(item.sender?.card || item.sender?.nickname || item.user_id)
+      .slice(0, 1)
+      .toUpperCase()
+  );
+  if (allowPoke) {
+    avatar.classList.add("is-pokable");
+    avatar.title = t("pages.dashboard.actions.poke", "Poke");
+    avatar.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void sendAvatarPoke(avatar, item);
+    });
+  }
+
+  const hasSegmentBody = hasRenderableSegmentBody(item);
+  const segments = Array.isArray(item?.message) ? item.message : [];
+  const forwardOnly =
+    segments.length > 0 &&
+    segments.every((segment) =>
+      ["forward", "forward_msg"].includes(text(segment?.type).trim().toLowerCase())
+    );
+  const mediaSegments = mediaSegmentsOf(item);
+  const images = mediaSegments.filter((segment) => isImageSegment(segment));
+  const videos = mediaSegments.filter((segment) => isVideoSegment(segment));
+  const audios = mediaSegments.filter((segment) => isAudioSegment(segment));
+  const files = mediaSegments.filter((segment) => isFileSegment(segment));
+  const summary = text(item.summary).trim();
+  const isAttachmentPlaceholder =
+    /^\[(image|video|audio|file)\]$/i.test(summary) &&
+    (images.length || videos.length || audios.length || files.length);
+  const displayText =
+    hasSegmentBody || isAttachmentPlaceholder || mediaSegments.length ? "" : summary;
+  const attachmentCount = images.length + videos.length + audios.length + files.length;
+  const singleMediaOnly = attachmentCount === 1 && !displayText;
+
+  const bubble = document.createElement("div");
+  bubble.className = singleMediaOnly
+    ? "bubble bubble-media-only"
+    : forwardOnly
+      ? "bubble bubble-forward-only"
+      : "bubble";
+  const bubbleFrame = document.createElement("div");
+  bubbleFrame.className = "message-bubble-frame";
+  const stack = document.createElement("div");
+  stack.className = `message-stack${item.is_self ? " self" : ""}`;
+
+  if (showSenderMeta || item.message_type === "group") {
+    const badgeMeta = buildGroupBadge({
+      ...member,
+      role: item.sender?.role || member?.role,
+      level: item.sender?.level || member?.level,
+      title: member?.title,
+      card: item.sender?.card || member?.card,
+      nickname: item.sender?.nickname || member?.nickname,
+      user_id: item.user_id,
+    });
+    const meta = document.createElement("div");
+    meta.className = `bubble-meta${item.is_self ? " self" : ""}`;
+
+    const badge = document.createElement("div");
+    badge.className = `bubble-corner-badge role-${badgeMeta.role}${
+      item.is_self ? " self" : ""
+    }`;
+    badge.textContent = badgeMeta.text;
+
+    const name = document.createElement("div");
+    name.className = `bubble-name${item.is_self ? " self" : ""}`;
+    name.textContent =
+      badgeMeta.name || item.sender?.card || item.sender?.nickname || item.user_id;
+    meta.append(badge, name);
+    stack.append(meta);
+  }
+  bubbleFrame.append(bubble);
+  if (showActions && !isOptimisticMessage(item) && !item.recalled) {
+    bubbleFrame.append(buildReplyAction(item));
+  }
+  if (showActions && canRecallMessage(item)) {
+    bubbleFrame.append(buildRecallAction(item));
+  }
+  stack.append(bubbleFrame);
+  const sendState = showActions ? buildSendState(item) : null;
+  if (sendState) {
+    stack.append(sendState);
+  }
+  row.append(avatar, stack);
+
+  const segmentBody = buildMessageBody(item, { forwardDepth });
+  if (segmentBody) {
+    bubble.append(segmentBody);
+  } else if (displayText) {
+    const body = document.createElement("div");
+    body.className = "bubble-text markdown-content";
+    body.append(renderMarkdownFragment(displayText));
+    bubble.append(body);
+  }
+
+  if (mediaSegments.length) {
+    const wrap = document.createElement("div");
+    wrap.className =
+      videos.length || audios.length || files.length
+        ? "attachment-row"
+        : "attachment-row images-only";
+
+    for (const segment of images) {
+      const previewUrl = text(segment?.data?.url || segment?.data?.file).trim();
+      const name = text(segment?.data?.name || segment?.data?.file).trim();
+      const link = document.createElement("a");
+      link.className = `message-image-link${singleMediaOnly ? " is-standalone" : ""}`;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.href = previewUrl || "javascript:void(0)";
+      const img = document.createElement("img");
+      img.className = "message-image";
+      img.loading = "lazy";
+      img.alt = name || t("pages.dashboard.attachments.image_alt", "image");
+      if (autoScrollAfterMediaLoad) {
+        img.addEventListener(
+          "load",
+          () => {
+            if (state.messageListAtBottom || isMessageListNearBottom()) {
+              scrollMessagesToBottom();
+            }
+          },
+          { once: true }
+        );
+      }
+      img.src = previewUrl;
+      link.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        openMediaPreview({ type: "image", url: previewUrl, name });
+      });
+      link.append(img);
+      wrap.append(link);
+    }
+
+    for (const segment of videos) {
+      const previewUrl = text(segment?.data?.url || segment?.data?.file).trim();
+      const name = text(segment?.data?.name || segment?.data?.file).trim();
+      const video = document.createElement("video");
+      video.className = `message-video${singleMediaOnly ? " is-standalone" : ""}`;
+      video.controls = true;
+      video.preload = "metadata";
+      video.src = previewUrl;
+      if (deferMediaRefresh) {
+        bindDeferredMediaRefresh(video, previewUrl, item.session_id);
+      }
+      video.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        openMediaPreview({ type: "video", url: previewUrl, name });
+      });
+      wrap.append(video);
+    }
+
+    for (const segment of audios) {
+      const previewUrl = text(segment?.data?.url || segment?.data?.file).trim();
+      const audio = document.createElement("audio");
+      audio.className = `message-audio${singleMediaOnly ? " is-standalone" : ""}`;
+      audio.controls = true;
+      audio.preload = "metadata";
+      audio.src = previewUrl;
+      if (deferMediaRefresh) {
+        bindDeferredMediaRefresh(audio, previewUrl, item.session_id);
+      }
+      wrap.append(audio);
+    }
+
+    for (const segment of files) {
+      const link = document.createElement("a");
+      link.className = `attachment-chip attachment-chip-file${
+        singleMediaOnly ? " is-standalone" : ""
+      }`;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      const attachmentUrl =
+        text(segment?.data?.url || segment?.data?.file).trim() || "javascript:void(0)";
+      const fileName = text(
+        segment?.data?.name || segment?.data?.file || segment?.type
+      ).trim();
+      link.title = fileName || segmentKindLabel(segment);
+      link.href = attachmentUrl;
+      const name = document.createElement("span");
+      name.className = "attachment-chip-file-name";
+      name.textContent = fileName || segmentKindLabel(segment);
+      const icon = document.createElement("span");
+      icon.className = "attachment-chip-file-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"></path><path d="M14 2v5h5"></path><path d="M9 15h6"></path><path d="M9 11h3"></path></svg>';
+      link.append(name, icon);
+      if (attachmentUrl === "javascript:void(0)") {
+        link.classList.add("is-disabled");
+      }
+      wrap.append(link);
+    }
+
+    bubble.append(wrap);
+  }
+
+  return row;
 }
 
 export function bindMessageEvents() {
@@ -1337,9 +1990,26 @@ export function bindMessageEvents() {
       closeMediaPreview();
     }
   });
+  els.forwardPreviewBackdrop.addEventListener("click", () => {
+    closeForwardPreview();
+  });
+  els.forwardPreviewCloseBtn.addEventListener("click", () => {
+    closeForwardPreview();
+  });
+  els.forwardPreviewBackBtn.addEventListener("click", () => {
+    if (state.forwardModalStack.length <= 1) {
+      return;
+    }
+    state.forwardModalStack.pop();
+    renderForwardPreviewModal();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && mediaPreviewOpen) {
       closeMediaPreview();
+      return;
+    }
+    if (event.key === "Escape" && state.forwardModalOpen) {
+      closeForwardPreview();
     }
   });
   els.mediaPreviewBody.addEventListener(
@@ -1518,198 +2188,12 @@ export function renderMessages(options = {}) {
       continue;
     }
 
-    const row = document.createElement("article");
-    const sendStatus = text(item.send_status).trim();
-    const isRecalling = state.messageRecallPendingIds.has(messageRecallKey(item));
-    row.className = `message-item${item.is_self ? " self" : ""}${
-      isOptimisticMessage(item) ? " is-local" : ""
-    }${sendStatus ? ` is-send-${sendStatus}` : ""}${item.recalled ? " is-recalled" : ""}${
-      isRecalling ? " is-recalling" : ""
-    }`;
-    if (shouldAnimateIncoming && index === items.length - 1) {
-      row.classList.add("is-entering");
-    }
-    row.dataset.messageId = text(item.message_id).trim();
-    const member = item.message_type === "group" ? findGroupMember(item.user_id) : null;
-
-    const avatar = document.createElement("div");
-    avatar.className = "avatar";
-    setAvatar(
-      avatar,
-      avatarUrl(item.user_id, "private"),
-      text(item.sender?.card || item.sender?.nickname || item.user_id).slice(0, 1).toUpperCase()
+    fragment.append(
+      buildMessageRow(item, {
+        animate: shouldAnimateIncoming && index === items.length - 1,
+        autoScrollAfterMediaLoad: shouldAutoScrollAfterMediaLoad,
+      })
     );
-    avatar.classList.add("is-pokable");
-    avatar.title = t("pages.dashboard.actions.poke", "Poke");
-    avatar.addEventListener("dblclick", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      void sendAvatarPoke(avatar, item);
-    });
-
-    const hasSegmentBody = hasRenderableSegmentBody(item);
-    const mediaSegments = mediaSegmentsOf(item);
-    const images = mediaSegments.filter((segment) => isImageSegment(segment));
-    const videos = mediaSegments.filter((segment) => isVideoSegment(segment));
-    const audios = mediaSegments.filter((segment) => isAudioSegment(segment));
-    const files = mediaSegments.filter((segment) => isFileSegment(segment));
-    const summary = text(item.summary).trim();
-    const isAttachmentPlaceholder =
-      /^\[(image|video|audio|file)\]$/i.test(summary) &&
-      (images.length || videos.length || audios.length || files.length);
-    const displayText =
-      hasSegmentBody || isAttachmentPlaceholder || mediaSegments.length ? "" : summary;
-    const attachmentCount = images.length + videos.length + audios.length + files.length;
-    const singleMediaOnly = attachmentCount === 1 && !displayText;
-
-    const bubble = document.createElement("div");
-    bubble.className = singleMediaOnly ? "bubble bubble-media-only" : "bubble";
-    const bubbleFrame = document.createElement("div");
-    bubbleFrame.className = "message-bubble-frame";
-    const stack = document.createElement("div");
-    stack.className = `message-stack${item.is_self ? " self" : ""}`;
-
-    if (item.message_type === "group") {
-      const badgeMeta = buildGroupBadge({
-        ...member,
-        role: item.sender?.role || member?.role,
-        level: item.sender?.level || member?.level,
-        title: member?.title,
-        card: item.sender?.card || member?.card,
-        nickname: item.sender?.nickname || member?.nickname,
-        user_id: item.user_id,
-      });
-      const meta = document.createElement("div");
-      meta.className = `bubble-meta${item.is_self ? " self" : ""}`;
-
-      const badge = document.createElement("div");
-      badge.className = `bubble-corner-badge role-${badgeMeta.role}${item.is_self ? " self" : ""}`;
-      badge.textContent = badgeMeta.text;
-
-      const name = document.createElement("div");
-      name.className = `bubble-name${item.is_self ? " self" : ""}`;
-      name.textContent = badgeMeta.name || item.sender?.card || item.sender?.nickname || item.user_id;
-      meta.append(badge, name);
-      stack.append(meta);
-    }
-    bubbleFrame.append(bubble);
-    if (!isOptimisticMessage(item) && !item.recalled) {
-      bubbleFrame.append(buildReplyAction(item));
-    }
-    if (canRecallMessage(item)) {
-      bubbleFrame.append(buildRecallAction(item));
-    }
-    stack.append(bubbleFrame);
-    const sendState = buildSendState(item);
-    if (sendState) {
-      stack.append(sendState);
-    }
-    row.append(avatar, stack);
-
-    const segmentBody = buildMessageBody(item);
-    if (segmentBody) {
-      bubble.append(segmentBody);
-    } else if (displayText) {
-      const body = document.createElement("div");
-      body.className = "bubble-text markdown-content";
-      body.append(renderMarkdownFragment(displayText));
-      bubble.append(body);
-    }
-
-    if (mediaSegments.length) {
-      const wrap = document.createElement("div");
-      wrap.className =
-        videos.length || audios.length || files.length
-          ? "attachment-row"
-          : "attachment-row images-only";
-
-      for (const segment of images) {
-        const previewUrl = text(segment?.data?.url || segment?.data?.file).trim();
-        const name = text(segment?.data?.name || segment?.data?.file).trim();
-        const link = document.createElement("a");
-        link.className = `message-image-link${singleMediaOnly ? " is-standalone" : ""}`;
-        link.target = "_blank";
-        link.rel = "noreferrer";
-        link.href = previewUrl || "javascript:void(0)";
-        const img = document.createElement("img");
-        img.className = "message-image";
-        img.loading = "lazy";
-        img.alt = name || t("pages.dashboard.attachments.image_alt", "image");
-        if (shouldAutoScrollAfterMediaLoad) {
-          img.addEventListener(
-            "load",
-            () => {
-              if (state.messageListAtBottom || isMessageListNearBottom()) {
-                scrollMessagesToBottom();
-              }
-            },
-            { once: true }
-          );
-        }
-        img.src = previewUrl;
-        link.addEventListener("dblclick", (event) => {
-          event.preventDefault();
-          openMediaPreview({ type: "image", url: previewUrl, name });
-        });
-        link.append(img);
-        wrap.append(link);
-      }
-
-      for (const segment of videos) {
-        const previewUrl = text(segment?.data?.url || segment?.data?.file).trim();
-        const name = text(segment?.data?.name || segment?.data?.file).trim();
-        const video = document.createElement("video");
-        video.className = `message-video${singleMediaOnly ? " is-standalone" : ""}`;
-        video.controls = true;
-        video.preload = "metadata";
-        video.src = previewUrl;
-        bindDeferredMediaRefresh(video, previewUrl, item.session_id);
-        video.addEventListener("dblclick", (event) => {
-          event.preventDefault();
-          openMediaPreview({ type: "video", url: previewUrl, name });
-        });
-        wrap.append(video);
-      }
-
-      for (const segment of audios) {
-        const previewUrl = text(segment?.data?.url || segment?.data?.file).trim();
-        const audio = document.createElement("audio");
-        audio.className = `message-audio${singleMediaOnly ? " is-standalone" : ""}`;
-        audio.controls = true;
-        audio.preload = "metadata";
-        audio.src = previewUrl;
-        bindDeferredMediaRefresh(audio, previewUrl, item.session_id);
-        wrap.append(audio);
-      }
-
-      for (const segment of files) {
-        const link = document.createElement("a");
-        link.className = `attachment-chip attachment-chip-file${singleMediaOnly ? " is-standalone" : ""}`;
-        link.target = "_blank";
-        link.rel = "noreferrer";
-        const attachmentUrl = text(segment?.data?.url || segment?.data?.file).trim() || "javascript:void(0)";
-        const fileName = text(segment?.data?.name || segment?.data?.file || segment?.type).trim();
-        link.title = fileName || segmentKindLabel(segment);
-        link.href = attachmentUrl;
-        const name = document.createElement("span");
-        name.className = "attachment-chip-file-name";
-        name.textContent = fileName || segmentKindLabel(segment);
-        const icon = document.createElement("span");
-        icon.className = "attachment-chip-file-icon";
-        icon.setAttribute("aria-hidden", "true");
-        icon.innerHTML =
-          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"></path><path d="M14 2v5h5"></path><path d="M9 15h6"></path><path d="M9 11h3"></path></svg>';
-        link.append(name, icon);
-        if (attachmentUrl === "javascript:void(0)") {
-          link.classList.add("is-disabled");
-        }
-        wrap.append(link);
-      }
-
-      bubble.append(wrap);
-    }
-
-    fragment.append(row);
   }
   els.messageListContent.append(fragment);
   if (preserveScrollOffset) {
