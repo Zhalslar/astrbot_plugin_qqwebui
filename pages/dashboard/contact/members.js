@@ -4,6 +4,12 @@ import { state } from "../core/state.js";
 import { avatarUrl, setAvatar, text } from "../core/utils.js";
 import { openProfileModal } from "../profile/modal.js";
 
+let memberOpenSessionHandler = null;
+
+export function setGroupMemberOpenSessionHandler(handler) {
+  memberOpenSessionHandler = typeof handler === "function" ? handler : null;
+}
+
 function roleBadgeLabel(role) {
   if (role === "owner") {
     return t("pages.dashboard.members.roles.owner", "owner");
@@ -80,6 +86,15 @@ export function renderGroupMembers() {
     avatarButton.append(avatar);
     const main = document.createElement("div");
     main.className = "member-main";
+    main.addEventListener("dblclick", (event) => {
+      const userId = text(member.user_id).trim();
+      if (!userId || !memberOpenSessionHandler) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void memberOpenSessionHandler(`private:${userId}`);
+    });
     const title = document.createElement("strong");
     title.textContent = displayName;
     const subtitle = document.createElement("span");

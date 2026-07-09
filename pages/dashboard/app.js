@@ -4,7 +4,7 @@ import { setStatus } from "./core/status.js";
 import { state } from "./core/state.js";
 import { bindComposerEvents, renderComposerPreview, updateSendAvailability } from "./chat/composer.js";
 import { loadContacts } from "./contact/service.js";
-import { renderGroupMembers } from "./contact/members.js";
+import { renderGroupMembers, setGroupMemberOpenSessionHandler } from "./contact/members.js";
 import { renderContactList } from "./contact/sidebar.js";
 import { connectEventStream, disconnectEventStream } from "./events/sse.js";
 import { bindProfileModalEvents, renderProfileModal } from "./profile/modal.js";
@@ -61,6 +61,7 @@ async function init() {
   syncLocaleFromContext();
   renderStaticText();
   setOpenSessionHandler(openSession);
+  setGroupMemberOpenSessionHandler(openSession);
   bridge.onContext(() => {
     syncLocaleFromContext();
     rerenderAll();
