@@ -1189,7 +1189,8 @@ function buildMessageBody(item) {
     return preview;
   }
 
-  for (const segment of segments) {
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
     const type = text(segment?.type).trim().toLowerCase();
     if (type === "reply") {
       flushTextBuffer();
@@ -1206,7 +1207,13 @@ function buildMessageBody(item) {
       mention.className = "bubble-at";
       mention.textContent = segmentTextParts(segment);
       body.append(mention);
-      body.append(document.createTextNode("\u00A0"));
+      const nextSegment = segments[index + 1];
+      const nextType = text(nextSegment?.type).trim().toLowerCase();
+      const nextText =
+        nextType === "text" ? text(nextSegment?.data?.text) : "";
+      if (!/^\s/.test(nextText)) {
+        body.append(document.createTextNode("\u00A0"));
+      }
       hasContent = true;
       continue;
     }

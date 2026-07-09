@@ -145,21 +145,27 @@ class FileService:
 
     @staticmethod
     def media_type(name: str, content_type: str = "") -> str:
+        """Infer the OneBot media segment type for an uploaded file.
+
+        Args:
+            name: Original uploaded filename.
+            content_type: Browser-provided MIME type.
+
+        Returns:
+            One of `image`, `video`, `record`, or `file`.
+        """
         suffix = Path(str(name or "")).suffix.lower()
         normalized_content_type = str(content_type or "").lower()
-        if (
-            normalized_content_type.startswith("image/")
-            or suffix in FileService.IMAGE_SUFFIXES
-        ):
+        if normalized_content_type.startswith("image/"):
             return "image"
-        if (
-            normalized_content_type.startswith("video/")
-            or suffix in FileService.VIDEO_SUFFIXES
-        ):
+        if normalized_content_type.startswith("video/"):
             return "video"
-        if (
-            normalized_content_type.startswith("audio/")
-            or suffix in FileService.AUDIO_SUFFIXES
-        ):
+        if normalized_content_type.startswith("audio/"):
+            return "record"
+        if suffix in FileService.IMAGE_SUFFIXES:
+            return "image"
+        if suffix in FileService.VIDEO_SUFFIXES:
+            return "video"
+        if suffix in FileService.AUDIO_SUFFIXES:
             return "record"
         return "file"
