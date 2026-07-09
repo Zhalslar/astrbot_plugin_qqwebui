@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiUpload } from "../core/api.js";
-import { LOCAL_MESSAGE_ID_PREFIX } from "../core/constants.js";
+import { LOCAL_MESSAGE_ID_PREFIX, QQWEBUI_MENTION_DRAG_MIME } from "../core/constants.js";
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
 import { ensureDirectMediaUrl, pendingUploadKindLabel } from "../core/media.js";
@@ -1221,6 +1221,72 @@ export function bindComposerEvents() {
   els.composerInput.addEventListener("click", () => {
     captureComposerSelectionRange();
     updateMentionSuggestions();
+  });
+
+  els.composerInput.addEventListener("dragover", (event) => {
+    const types = Array.from(event.dataTransfer?.types || []);
+    if (
+      els.composerInput.contentEditable !== "true" ||
+      !isGroupSession() ||
+      !types.includes(QQWEBUI_MENTION_DRAG_MIME)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  });
+
+  els.composerInput.addEventListener("drop", (event) => {
+    const payload = event.dataTransfer?.getData(QQWEBUI_MENTION_DRAG_MIME) || "";
+    if (!payload) {
+      return;
+    }
+    event.preventDefault();
+    if (els.composerInput.contentEditable !== "true" || !isGroupSession()) {
+      return;
+    }
+
+    let mention = null;
+    try {
+      mention = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    const userId = text(mention?.user_id).trim();
+    const groupId = text(mention?.group_id).trim();
+    const activeGroupId = text(activeSession()?.target_id).trim();
+    if (!/^\d+$/.test(userId) || groupId !== activeGroupId) {
+      return;
+    }
+
+    let range = null;
+    if (document.caretPositionFromPoint) {
+      const position = document.caretPositionFromPoint(event.clientX, event.clientY);
+      if (position) {
+        range = document.createRange();
+        range.setStart(position.offsetNode, position.offset);
+      }
+    } else if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(event.clientX, event.clientY);
+    }
+    if (!range || !els.composerInput.contains(range.startContainer)) {
+      range = composerInsertionRange();
+    }
+    range.collapse(true);
+
+    const token = document.createElement("span");
+    token.className = "composer-mention-token";
+    token.contentEditable = "false";
+    token.dataset.qq = userId;
+    token.dataset.name = text(mention?.name).trim() || userId;
+    token.textContent = token.dataset.name;
+    range.insertNode(token);
+    const spacer = document.createTextNode(" ");
+    token.after(spacer);
+    moveCaretAfter(spacer);
+    normalizeComposerEditor();
+    closeMentionSuggestions();
+    els.composerInput.focus();
   });
 
   els.composerInput.addEventListener("paste", async (event) => {

@@ -2,6 +2,7 @@ import { apiGet, apiPost } from "../core/api.js";
 import {
   LOCAL_MESSAGE_ID_PREFIX,
   MESSAGE_RECALL_WINDOW_SECONDS,
+  QQWEBUI_MENTION_DRAG_MIME,
 } from "../core/constants.js";
 import { els } from "../core/dom.js";
 import { t } from "../core/i18n.js";
@@ -51,6 +52,7 @@ const mediaRefreshPendingSessionIds = new Set();
 const mediaRefreshAttemptKeys = new Set();
 const pokeCooldownKeys = new Set();
 const forwardFetchPromises = new Map();
+const AVATAR_PROFILE_CLICK_DELAY_MS = 300;
 
 function forwardTitle() {
   return t("pages.dashboard.forward.title", "合并转发消息");
@@ -1709,22 +1711,93 @@ function buildMessageRow(item, options = {}) {
   }
   row.dataset.messageId = text(item.message_id).trim();
   const member = item.message_type === "group" ? findGroupMember(item.user_id) : null;
+  const userId = text(item.user_id || item.sender?.user_id).trim();
+  const avatarDisplayName =
+    text(
+      item.sender?.card ||
+        member?.card ||
+        item.sender?.nickname ||
+        member?.nickname ||
+        item.user_id
+    ).trim() || userId;
 
   const avatar = document.createElement("div");
   avatar.className = "avatar";
-  setAvatar(
-    avatar,
-    avatarUrl(item.user_id, "private"),
-    text(item.sender?.card || item.sender?.nickname || item.user_id)
-      .slice(0, 1)
-      .toUpperCase()
-  );
+  setAvatar(avatar, avatarUrl(userId, "private"), avatarDisplayName.slice(0, 1).toUpperCase());
+  let avatarProfileTimerId = 0;
+  if (/^\d+$/.test(userId)) {
+    avatar.classList.add("is-profile-clickable");
+    avatar.title = t("pages.dashboard.profile.open", "Open profile");
+    avatar.tabIndex = 0;
+    avatar.setAttribute("role", "button");
+    avatar.setAttribute("aria-label", avatar.title);
+    const openAvatarProfile = () => {
+      const cleanGroupId = text(item.group_id).trim();
+      const groupId =
+        item.message_type === "group" && /^\d+$/.test(cleanGroupId) ? cleanGroupId : "";
+      void openProfileModal({
+        userId,
+        groupId,
+        displayName: avatarDisplayName,
+        nickname: item.sender?.nickname || member?.nickname,
+        isFriend: item.message_type === "private",
+        role: text(item.sender?.role || member?.role).trim().toLowerCase(),
+        title: text(member?.title).trim(),
+      });
+    };
+    avatar.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.detail > 1) {
+        return;
+      }
+      if (!allowPoke) {
+        openAvatarProfile();
+        return;
+      }
+      if (avatarProfileTimerId) {
+        window.clearTimeout(avatarProfileTimerId);
+      }
+      avatarProfileTimerId = window.setTimeout(() => {
+        avatarProfileTimerId = 0;
+        openAvatarProfile();
+      }, AVATAR_PROFILE_CLICK_DELAY_MS);
+    });
+    avatar.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      openAvatarProfile();
+    });
+    const cleanGroupId = text(item.group_id).trim();
+    if (item.message_type === "group" && /^\d+$/.test(cleanGroupId)) {
+      avatar.draggable = true;
+      avatar.addEventListener("dragstart", (event) => {
+        event.stopPropagation();
+        event.dataTransfer.effectAllowed = "copy";
+        event.dataTransfer.setData(
+          QQWEBUI_MENTION_DRAG_MIME,
+          JSON.stringify({
+            user_id: userId,
+            name: avatarDisplayName,
+            group_id: cleanGroupId,
+          })
+        );
+        event.dataTransfer.setData("text/plain", `@${avatarDisplayName}`);
+      });
+    }
+  }
   if (allowPoke) {
     avatar.classList.add("is-pokable");
-    avatar.title = t("pages.dashboard.actions.poke", "Poke");
     avatar.addEventListener("dblclick", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (avatarProfileTimerId) {
+        window.clearTimeout(avatarProfileTimerId);
+        avatarProfileTimerId = 0;
+      }
       void sendAvatarPoke(avatar, item);
     });
   }

@@ -771,6 +771,7 @@ textarea {
   flex-direction: row-reverse;
 }
 
+.message-item .avatar.is-profile-clickable,
 .message-item .avatar.is-pokable {
   cursor: pointer;
 }
@@ -2571,6 +2572,10 @@ html[data-theme="dark"] .profile-tag.is-title {
   .chat-panel,
   .detail-panel {
     min-height: 360px;
+  }
+
+  .detail-panel {
+    display: none;
   }
 
   body {
