@@ -396,6 +396,57 @@
       </section>
     </div>
 
+    <div id="forwardPreviewModal" class="forward-preview-modal is-hidden" aria-hidden="true">
+      <button
+        id="forwardPreviewBackdrop"
+        class="forward-preview-backdrop"
+        type="button"
+        aria-label="Close forwarded messages"
+      ></button>
+      <section
+        id="forwardPreviewCard"
+        class="forward-preview-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="forwardPreviewTitle"
+      >
+        <header class="forward-preview-header">
+          <button
+            id="forwardPreviewBackBtn"
+            class="ghost-button icon-button forward-preview-back is-hidden"
+            type="button"
+            title="Back"
+            aria-label="Back"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M15 18l-6-6 6-6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              ></path>
+            </svg>
+          </button>
+          <div class="forward-preview-heading">
+            <strong id="forwardPreviewTitle">合并转发消息</strong>
+            <span id="forwardPreviewMeta"></span>
+          </div>
+          <button
+            id="forwardPreviewCloseBtn"
+            class="ghost-button icon-button forward-preview-close"
+            type="button"
+            title="Close"
+            aria-label="Close"
+          >
+            <span aria-hidden="true">x</span>
+          </button>
+        </header>
+        <div id="forwardPreviewBody" class="forward-preview-body"></div>
+      </section>
+    </div>
+
     <script type="module" src="./app.js"></script>
   </body>
 </html>

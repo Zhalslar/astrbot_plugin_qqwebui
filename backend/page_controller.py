@@ -50,6 +50,7 @@ class PageController:
             ("/page/status", self.page_status, ["GET"], "status"),
             ("/page/sessions", self.page_sessions, ["GET"], "sessions"),
             ("/page/messages", self.page_messages, ["GET"], "messages"),
+            ("/page/forward", self.page_forward, ["GET"], "forward message"),
             (
                 "/page/history/group",
                 self.page_group_history,
@@ -152,6 +153,20 @@ class PageController:
             return self._error(str(exc), 400)
         except Exception as exc:
             logger.exception("[qqwebui] page_messages failed: %s", exc)
+            return self._error(str(exc), 500)
+
+    async def page_forward(self):
+        try:
+            args = request.query
+            return self._ok(
+                await self.sessions.fetch_forward_messages(
+                    str(args.get("id", "")).strip()
+                )
+            )
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:
+            logger.exception("[qqwebui] page_forward failed: %s", exc)
             return self._error(str(exc), 500)
 
     async def page_group_history(self):

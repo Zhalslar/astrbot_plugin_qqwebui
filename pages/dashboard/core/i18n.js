@@ -26,6 +26,17 @@ export function renderStaticText() {
     "Jump to previous reading position"
   );
   els.messageJumpToUnreadBtn.setAttribute("aria-label", els.messageJumpToUnreadBtn.title);
+  els.forwardPreviewTitle.textContent = t(
+    "pages.dashboard.forward.title",
+    "合并转发消息"
+  );
+  els.forwardPreviewBackBtn.title = t("pages.dashboard.forward.back", "Back");
+  els.forwardPreviewBackBtn.setAttribute("aria-label", els.forwardPreviewBackBtn.title);
+  els.forwardPreviewCloseBtn.title = t("pages.dashboard.forward.close", "Close");
+  els.forwardPreviewCloseBtn.setAttribute(
+    "aria-label",
+    els.forwardPreviewCloseBtn.title
+  );
   els.attachmentButton.title = t("pages.dashboard.actions.upload_attachment", "Upload attachment");
   els.attachmentButton.setAttribute("aria-label", els.attachmentButton.title);
   els.emojiButton.title = t("pages.dashboard.actions.emoji", "Emoji");

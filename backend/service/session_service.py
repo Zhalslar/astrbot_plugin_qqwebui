@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
-from aiocqhttp import CQHttp
+from aiocqhttp import CQHttp, Message
 
 from astrbot.api import logger
 
@@ -21,6 +22,8 @@ from .sse_service import SseService
 
 
 class SessionService:
+    MAX_INLINE_FORWARD_DEPTH = 6
+
     def __init__(
         self,
         bot: CQHttp,
@@ -32,6 +35,7 @@ class SessionService:
         self.store = store
         self.sse = sse
         self.files = files
+        self._forward_fetch_tasks: dict[str, asyncio.Task[list[EventRecord]]] = {}
 
     async def list_sessions(
         self,
@@ -58,10 +62,13 @@ class SessionService:
     ) -> dict[str, Any]:
         self.files.ensure_media_tokens_registered()
         rows = self.store.messages.list(session_id, before=before, limit=limit)
+        for row in rows:
+            self._schedule_forward_prefetch(row)
         session = self.store.sessions.get(session_id)
         return {
             "items": [row.to_dict() for row in rows],
             "session": session.to_dict() if session else None,
+            "forward_cache": self._forward_cache_payload(rows),
         }
 
     async def fetch_history(
@@ -145,6 +152,7 @@ class SessionService:
             )
             if record is not None:
                 records.append(record)
+                self._schedule_forward_prefetch(record)
 
         current_message_seq = str(clean_message_seq)
         next_message_seq = records[0].message_id if records else current_message_seq
@@ -181,10 +189,228 @@ class SessionService:
         return {
             "items": [record.to_dict() for record in records],
             "session": session.to_dict() if session else None,
+            "forward_cache": self._forward_cache_payload(records),
             "message_seq": current_message_seq,
             "next_message_seq": next_message_seq,
             "has_more": bool(records) and next_message_seq != current_message_seq,
         }
+
+    async def fetch_forward_messages(self, forward_id: str) -> dict[str, Any]:
+        """Fetch and normalize a OneBot merged forward message.
+
+        Args:
+            forward_id: Merged forward message ID reported by OneBot.
+
+        Returns:
+            Forward message metadata and WebUI-shaped node messages.
+
+        Raises:
+            ValueError: The forward ID is missing or upstream returns no nodes.
+        """
+
+        clean_forward_id = str(forward_id).strip()
+        if not clean_forward_id:
+            raise ValueError("forward id is required")
+        if len(clean_forward_id) > 160:
+            raise ValueError("forward id is too long")
+
+        cached_records = self.store.forward_messages.get(clean_forward_id)
+        if cached_records is not None:
+            return {
+                "id": clean_forward_id,
+                "items": [record.to_dict() for record in cached_records],
+                "count": len(cached_records),
+                "forward_cache": self._forward_cache_payload(cached_records),
+                "cached": True,
+            }
+
+        records = await self._start_forward_fetch_task(clean_forward_id)
+        return {
+            "id": clean_forward_id,
+            "items": [record.to_dict() for record in records],
+            "count": len(records),
+            "forward_cache": self._forward_cache_payload(records),
+            "cached": False,
+        }
+
+    async def _fetch_forward_messages_remote(
+        self,
+        clean_forward_id: str,
+    ) -> list[EventRecord]:
+        """Fetch a merged forward message from OneBot and cache it.
+
+        Args:
+            clean_forward_id: Validated merged forward message ID.
+
+        Returns:
+            Normalized forward node records.
+
+        Raises:
+            ValueError: Upstream returns no usable forward payload.
+        """
+
+        payload: dict[str, Any] | None = None
+        params_list: list[dict[str, Any]] = [
+            {"id": clean_forward_id},
+            {"message_id": clean_forward_id},
+        ]
+        if clean_forward_id.isdigit():
+            numeric_id = int(clean_forward_id)
+            params_list.extend([{"id": numeric_id}, {"message_id": numeric_id}])
+
+        last_error: Exception | None = None
+        for params in params_list:
+            try:
+                result = await self.bot.call_action("get_forward_msg", **params)
+            except Exception as exc:
+                last_error = exc
+                continue
+            if isinstance(result, dict):
+                data = result.get("data")
+                payload = data if isinstance(data, dict) else result
+                break
+
+        if payload is None:
+            if last_error is not None:
+                error_text = str(last_error)
+                if "内层消息" in error_text or "retcode=1200" in error_text:
+                    raise ValueError(
+                        "内层转发消息无法单独获取，可能已过期或当前平台不支持。"
+                    ) from last_error
+                raise ValueError(
+                    f"failed to fetch forward message: {last_error}"
+                ) from last_error
+            raise ValueError("forward message not found")
+
+        raw_nodes = (
+            payload.get("messages")
+            or payload.get("message")
+            or payload.get("nodes")
+            or payload.get("nodeList")
+        )
+        if not isinstance(raw_nodes, list):
+            raise ValueError("forward message has no nodes")
+
+        records = await self._normalize_forward_nodes(clean_forward_id, raw_nodes)
+
+        self.store.forward_messages.upsert(clean_forward_id, records)
+        self.store.persist()
+        for record in records:
+            self._schedule_forward_prefetch(record)
+        return records
+
+    async def _normalize_forward_nodes(
+        self,
+        forward_id: str,
+        raw_nodes: list[Any],
+        *,
+        depth: int = 0,
+    ) -> list[EventRecord]:
+        """Normalize raw OneBot forward nodes and cache inline nested forwards.
+
+        Args:
+            forward_id: Forward ID used as parent for generated inline IDs.
+            raw_nodes: Raw nodes returned by OneBot.
+            depth: Current inline nested forward depth.
+
+        Returns:
+            Normalized event records that the WebUI can render.
+        """
+
+        records: list[EventRecord] = []
+        for index, raw_node in enumerate(raw_nodes):
+            record = self._forward_node_to_record(forward_id, raw_node, index)
+            if record is None:
+                continue
+            await self._cache_inline_forward_segments(
+                forward_id,
+                record.message,
+                path=str(index),
+                depth=depth,
+            )
+            await self.normalize_message_media_urls(record)
+            records.append(record)
+        return records
+
+    async def _cache_inline_forward_segments(
+        self,
+        parent_forward_id: str,
+        segments: list[Any],
+        *,
+        path: str,
+        depth: int = 0,
+    ) -> None:
+        """Cache nested forward content that is already present inline.
+
+        Args:
+            parent_forward_id: Parent forward ID used to derive virtual IDs.
+            segments: Message segments to inspect and normalize in place.
+            path: Stable position path for generated virtual IDs.
+            depth: Current inline nested forward depth.
+        """
+
+        if depth >= self.MAX_INLINE_FORWARD_DEPTH:
+            return
+        for index, segment in enumerate(segments):
+            if not isinstance(segment, dict):
+                continue
+            seg_type = str(segment.get("type", "")).strip().lower()
+            data = segment.get("data")
+            if not isinstance(data, dict):
+                data = {}
+                segment["data"] = data
+
+            child_path = f"{path}.{index}"
+            inline_nodes = self._inline_forward_nodes_from_segment(segment)
+            if inline_nodes:
+                forward_id = str(
+                    data.get("id") or data.get("message_id") or ""
+                ).strip()
+                if not forward_id:
+                    forward_id = f"{parent_forward_id}:inline:{child_path}"
+                nested_records = await self._normalize_forward_nodes(
+                    forward_id,
+                    inline_nodes,
+                    depth=depth + 1,
+                )
+                if nested_records:
+                    self.store.forward_messages.upsert(forward_id, nested_records)
+                    segment["type"] = "forward"
+                    segment["data"] = {"id": forward_id}
+                continue
+
+            if seg_type == "node":
+                content = data.get("content") or data.get("message")
+                if isinstance(content, list):
+                    await self._cache_inline_forward_segments(
+                        parent_forward_id,
+                        content,
+                        path=child_path,
+                        depth=depth,
+                    )
+
+    @staticmethod
+    def _inline_forward_nodes_from_segment(segment: dict[str, Any]) -> list[Any]:
+        """Extract inline forward nodes from a segment when available.
+
+        Args:
+            segment: OneBot message segment to inspect.
+
+        Returns:
+            Raw nested forward nodes, or an empty list when the segment only has an ID.
+        """
+
+        seg_type = str(segment.get("type", "")).strip().lower()
+        if seg_type not in {"forward", "forward_msg", "nodes"}:
+            return []
+        data = segment.get("data")
+        if not isinstance(data, dict):
+            return []
+        for key in ("messages", "message", "nodes", "nodeList", "content"):
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+        return []
 
     async def sync_session_view(
         self,
@@ -286,7 +512,131 @@ class SessionService:
             last_active_session_id=self.store.last_active_session_id,
         )
         if message.post_type == "message":
+            self._schedule_forward_prefetch(message)
             asyncio.create_task(self.normalize_message_media_urls(message))
+
+    def _forward_ids_from_record(self, message: EventRecord) -> list[str]:
+        """Extract merged forward IDs from a cached message record.
+
+        Args:
+            message: Message record whose segments should be scanned.
+
+        Returns:
+            Unique forward IDs in encounter order.
+        """
+
+        forward_ids: list[str] = []
+        seen: set[str] = set()
+        pending_segments: list[Any] = [message.message]
+        while pending_segments:
+            segments = pending_segments.pop()
+            if not isinstance(segments, list):
+                continue
+            for segment in segments:
+                if not isinstance(segment, dict):
+                    continue
+                seg_type = str(segment.get("type", "")).strip().lower()
+                data = segment.get("data")
+                if not isinstance(data, dict):
+                    data = {}
+                if seg_type in {"forward", "forward_msg"}:
+                    forward_id = str(
+                        data.get("id") or data.get("message_id") or ""
+                    ).strip()
+                    if forward_id and forward_id not in seen:
+                        seen.add(forward_id)
+                        forward_ids.append(forward_id)
+                    continue
+                if seg_type in {"node", "nodes"}:
+                    content = data.get("content") or data.get("message")
+                    if isinstance(content, list):
+                        pending_segments.append(content)
+        return forward_ids
+
+    def _forward_cache_payload(
+        self,
+        records: list[EventRecord],
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Build a payload of cached forward messages referenced by records.
+
+        Args:
+            records: Message records to inspect for forward segments.
+
+        Returns:
+            Mapping of forward ID to normalized message dictionaries.
+        """
+
+        payload: dict[str, list[dict[str, Any]]] = {}
+        for record in records:
+            for forward_id in self._forward_ids_from_record(record):
+                cached_records = self.store.forward_messages.get(forward_id)
+                if cached_records is None:
+                    continue
+                payload[forward_id] = [item.to_dict() for item in cached_records]
+        return payload
+
+    def _start_forward_fetch_task(
+        self,
+        clean_forward_id: str,
+    ) -> asyncio.Task[list[EventRecord]]:
+        """Return the shared fetch task for a merged forward ID.
+
+        Args:
+            clean_forward_id: Validated merged forward message ID.
+
+        Returns:
+            In-flight task that resolves to normalized forward records.
+        """
+
+        task = self._forward_fetch_tasks.get(clean_forward_id)
+        if task is not None and not task.done():
+            return task
+        task = asyncio.create_task(
+            self._fetch_forward_messages_remote(clean_forward_id)
+        )
+        self._forward_fetch_tasks[clean_forward_id] = task
+        task.add_done_callback(
+            lambda done, forward_id=clean_forward_id: self._finish_forward_fetch_task(
+                forward_id,
+                done,
+            )
+        )
+        return task
+
+    def _finish_forward_fetch_task(
+        self,
+        forward_id: str,
+        task: asyncio.Task[list[EventRecord]],
+    ) -> None:
+        """Remove a completed forward fetch task and log failures.
+
+        Args:
+            forward_id: Merged forward ID associated with the task.
+            task: Completed task to consume.
+        """
+
+        if self._forward_fetch_tasks.get(forward_id) is task:
+            self._forward_fetch_tasks.pop(forward_id, None)
+        try:
+            task.result()
+        except Exception as exc:
+            logger.debug("[qqwebui] forward prefetch failed id=%s: %s", forward_id, exc)
+
+    def _schedule_forward_prefetch(self, message: EventRecord) -> None:
+        """Start background fetches for forward segments in a message.
+
+        Args:
+            message: Message record to inspect for forward IDs.
+        """
+
+        if message.post_type != "message":
+            return
+        for forward_id in self._forward_ids_from_record(message):
+            if len(forward_id) > 160:
+                continue
+            if self.store.forward_messages.get(forward_id) is not None:
+                continue
+            self._start_forward_fetch_task(forward_id)
 
     def _sync_event_profiles(self, event: OnebotEvent) -> str:
         title = event.sender_name
@@ -485,6 +835,128 @@ class SessionService:
             }
         )
 
+        event = OnebotEvent.from_event(payload)
+        if event is None:
+            return None
+        record = event.to_event_record()
+        self._add_at_name(record)
+        return record
+
+    def _forward_node_to_record(
+        self,
+        forward_id: str,
+        raw_node: Any,
+        index: int,
+    ) -> EventRecord | None:
+        """Convert a OneBot forward node into the WebUI event model.
+
+        Args:
+            forward_id: Parent merged forward message ID.
+            raw_node: Raw node object from ``get_forward_msg``.
+            index: Node index inside the forward message.
+
+        Returns:
+            Parsed event record, or None when the node cannot be rendered.
+        """
+
+        if not isinstance(raw_node, dict):
+            return None
+
+        node_payload = dict(raw_node)
+        data = node_payload.get("data")
+        if node_payload.get("type") == "node" and isinstance(data, dict):
+            node_payload = {**node_payload, **data}
+
+        sender = node_payload.get("sender", {})
+        if not isinstance(sender, dict):
+            sender = {}
+        sender_user_id = str(
+            sender.get("user_id")
+            or node_payload.get("user_id")
+            or node_payload.get("uin")
+            or node_payload.get("sender_id")
+            or ""
+        ).strip()
+        sender_name = str(
+            sender.get("card")
+            or sender.get("nickname")
+            or node_payload.get("card")
+            or node_payload.get("nickname")
+            or node_payload.get("name")
+            or sender_user_id
+        ).strip()
+        if not sender_user_id:
+            sender_user_id = sender_name or f"forward-{index + 1}"
+
+        content = (
+            node_payload.get("content")
+            or node_payload.get("message")
+            or node_payload.get("messages")
+            or []
+        )
+        raw_text = ""
+        if isinstance(content, str):
+            raw_text = content
+            clean_content = content.strip()
+            if clean_content:
+                try:
+                    parsed_content = json.loads(clean_content)
+                except Exception:
+                    parsed_content = None
+                if isinstance(parsed_content, list):
+                    content = parsed_content
+                elif isinstance(parsed_content, dict):
+                    content = [parsed_content]
+                else:
+                    try:
+                        content = [
+                            dict(item)
+                            for item in Message(content)
+                            if isinstance(item, dict)
+                        ]
+                    except Exception:
+                        content = []
+                    if not content:
+                        content = [{"type": "text", "data": {"text": raw_text}}]
+            else:
+                content = []
+        elif isinstance(content, dict):
+            content = [content]
+
+        if not isinstance(content, list):
+            content = []
+
+        segments: list[dict[str, Any]] = []
+        for segment in content:
+            if isinstance(segment, dict):
+                segments.append(dict(segment))
+            elif isinstance(segment, str) and segment:
+                segments.append({"type": "text", "data": {"text": segment}})
+        if not segments:
+            return None
+
+        sender_payload = {
+            "user_id": sender_user_id,
+            "nickname": sender_name,
+            "card": str(sender.get("card") or node_payload.get("card") or ""),
+            "role": str(sender.get("role") or node_payload.get("role") or ""),
+            "level": str(sender.get("level") or node_payload.get("level") or ""),
+        }
+        payload = {
+            "self_id": str(self.store.contacts.login.user_id or ""),
+            "user_id": sender_user_id,
+            "time": int(node_payload.get("time", 0) or 0),
+            "message_id": f"forward:{forward_id}:{index}",
+            "post_type": "message",
+            "message_type": "group",
+            "message_format": "array",
+            "sub_type": "forward",
+            "raw_message": raw_text,
+            "message": segments,
+            "sender": sender_payload,
+            "group_id": f"forward:{forward_id}",
+            "target_id": f"forward:{forward_id}",
+        }
         event = OnebotEvent.from_event(payload)
         if event is None:
             return None

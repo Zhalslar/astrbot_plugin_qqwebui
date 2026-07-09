@@ -14,6 +14,7 @@ import { loadGroupMembers } from "../contact/service.js";
 import { renderGroupMembers } from "../contact/members.js";
 import {
   fetchHistoryMessages,
+  hydrateForwardCache,
   rememberActiveSessionExitCursor,
   renderMessages,
 } from "./messages.js";
@@ -443,6 +444,7 @@ export async function loadMessages(sessionId) {
     session_id: sessionId,
     limit: MESSAGE_PAGE_LIMIT,
   });
+  hydrateForwardCache(data.forward_cache);
   let items = Array.isArray(data.items) ? data.items : [];
   let historyData = null;
   if (!items.length) {
@@ -513,6 +515,7 @@ export async function applyIncomingSession(session) {
 }
 
 export async function applyIncomingMessage(payload) {
+  hydrateForwardCache(payload?.forward_cache);
   if (payload?.session?.session_id) {
     upsertSession(payload.session);
   }
