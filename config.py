@@ -17,7 +17,7 @@ class PluginConfig(BaseModel):
     contact_ttl: int = Field(default=300)
     group_member_ttl: int = Field(default=120)
     max_media_size: int = Field(default=15 * 1024 * 1024)
-    media_token_ttl: int = Field(default=36000)
+    media_token_ttl: int = Field(default=30 * 24 * 60 * 60)
 
     model_config = ConfigDict(extra="ignore")
 

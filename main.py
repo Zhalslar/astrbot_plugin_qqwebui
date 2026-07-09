@@ -32,6 +32,7 @@ class QQWebui(Star):
         self.context = context
         self.cfg = PluginConfig(config)
         self.store: QQWebuiStore | None = None
+        self.files: FileService | None = None
         self.sse: SseService | None = None
         self.self_capture: SelfCaptureService | None = None
         self.inbound: InboundService | None = None
@@ -48,6 +49,8 @@ class QQWebui(Star):
     async def terminate(self):
         if self.store:
             self.store.persist()
+        if self.files:
+            self.files.release_staged_files()
         if self.sse:
             self.sse.clear()
         if self.self_capture:
@@ -86,6 +89,8 @@ class QQWebui(Star):
         self.store = QQWebuiStore(self.cfg)
         self.store.load()
         files = FileService(self.cfg, self.store)
+        self.files = files
+        files.take_over_staged_files()
         files.ensure_media_tokens_registered()
         self.store.persist()
 
