@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from astrbot.api import logger
 from astrbot.api.web import PluginUploadFile
 from astrbot.core import file_token_service
 from astrbot.core.utils.io import download_file
@@ -68,19 +69,15 @@ class _RestorableStagedFiles(dict):
             True when the token is available after restoration.
         """
 
-        for entry in self.store.media_tokens.entries:
-            if str(entry.get("token", "") or "").strip() != token:
-                continue
-            file_path = str(entry.get("file_path", "") or "").strip()
-            if not file_path:
-                return False
-            if not Path(file_path).is_file():
-                self.store.media_tokens.prune_missing_files()
-                self.store.persist()
-                return False
-            dict.__setitem__(self, token, (file_path, time() + self.timeout))
-            return True
-        return False
+        file_path = self.store.media_tokens.file_path_for_token(token)
+        if not file_path:
+            return False
+        if not Path(file_path).is_file():
+            self.store.media_tokens.prune_missing_files()
+            self.store.persist()
+            return False
+        dict.__setitem__(self, token, (file_path, time() + self.timeout))
+        return True
 
 
 class FileService:
@@ -95,6 +92,13 @@ class FileService:
         self.store = store
         self.media_dir = self.cfg.media_dir
         self.media_token_ttl = max(self.cfg.media_token_ttl, self.MIN_MEDIA_TOKEN_TTL)
+        if self.cfg.media_token_ttl < self.MIN_MEDIA_TOKEN_TTL:
+            logger.info(
+                "[qqwebui] media_token_ttl=%s is below the supported minimum; "
+                "using %s seconds",
+                self.cfg.media_token_ttl,
+                self.MIN_MEDIA_TOKEN_TTL,
+            )
         self._media_tokens_registered_at = 0.0
         self._staged_files: _RestorableStagedFiles | None = None
 
