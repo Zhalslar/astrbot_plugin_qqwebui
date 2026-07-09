@@ -448,12 +448,14 @@ class MediaTokenCache:
 
     def __init__(self) -> None:
         self.entries: list[dict[str, str]] = []
+        self._file_paths_by_token: dict[str, str] = {}
 
     def export_data(self) -> list[dict[str, str]]:
         return self.entries
 
     def load_data(self, rows: list[dict[str, Any]]) -> None:
         self.entries = []
+        self._file_paths_by_token = {}
         for entry in rows:
             if not isinstance(entry, dict):
                 continue
@@ -462,6 +464,9 @@ class MediaTokenCache:
             if not token or not file_path:
                 continue
             self.entries.append({"token": token, "file_path": file_path})
+        self._file_paths_by_token = {
+            entry["token"]: entry["file_path"] for entry in self.entries
+        }
 
     def remember(self, token: str, file_path: str) -> None:
         normalized_token = str(token or "").strip()
@@ -475,6 +480,9 @@ class MediaTokenCache:
             and entry.get("file_path") != normalized_path
         ]
         self.entries.append({"token": normalized_token, "file_path": normalized_path})
+        self._file_paths_by_token = {
+            entry["token"]: entry["file_path"] for entry in self.entries
+        }
 
     def prune_missing_files(self) -> None:
         self.entries = [
@@ -482,6 +490,21 @@ class MediaTokenCache:
             for entry in self.entries
             if Path(str(entry.get("file_path", "") or "")).is_file()
         ]
+        self._file_paths_by_token = {
+            entry["token"]: entry["file_path"] for entry in self.entries
+        }
+
+    def file_path_for_token(self, token: str) -> str:
+        """Return the cached file path for a media token.
+
+        Args:
+            token: File token to look up.
+
+        Returns:
+            Cached media file path, or an empty string when unknown.
+        """
+
+        return self._file_paths_by_token.get(str(token or "").strip(), "")
 
 
 class QQWebuiStore:

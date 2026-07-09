@@ -3,9 +3,11 @@ from __future__ import annotations
 import mimetypes
 from pathlib import Path
 from time import time
+from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from astrbot.api import logger
 from astrbot.api.web import PluginUploadFile
 from astrbot.core import file_token_service
 from astrbot.core.utils.io import download_file
@@ -15,17 +17,120 @@ from ...config import PluginConfig
 from ..infra.store import QQWebuiStore
 
 
+class _RestorableStagedFiles(dict):
+    """Keep qqwebui media file tokens reusable inside AstrBot's token service.
+
+    Args:
+        initial: Existing staged token mapping to preserve.
+        store: Plugin store that owns restorable media token entries.
+        timeout: Restored token lifetime in seconds.
+    """
+
+    _MISSING = object()
+
+    def __init__(
+        self,
+        initial: dict[str, tuple[str, float]],
+        store: QQWebuiStore,
+        timeout: int,
+    ) -> None:
+        super().__init__(initial)
+        self.store = store
+        self.timeout = timeout
+
+    def __contains__(self, key: object) -> bool:
+        if dict.__contains__(self, key):
+            return True
+        if not isinstance(key, str):
+            return False
+        return self._restore_token(key)
+
+    def pop(self, key: str, default: Any = _MISSING) -> Any:
+        if not dict.__contains__(self, key):
+            self._restore_token(key)
+
+        if default is self._MISSING:
+            value = dict.pop(self, key)
+            self._restore_token(key)
+            return value
+
+        value = dict.pop(self, key, default)
+        if value is not default:
+            self._restore_token(key)
+        return value
+
+    def _restore_token(self, token: str) -> bool:
+        """Restore a persisted qqwebui token if its media file still exists.
+
+        Args:
+            token: File token to restore.
+
+        Returns:
+            True when the token is available after restoration.
+        """
+
+        file_path = self.store.media_tokens.file_path_for_token(token)
+        if not file_path:
+            return False
+        if not Path(file_path).is_file():
+            self.store.media_tokens.prune_missing_files()
+            self.store.persist()
+            return False
+        dict.__setitem__(self, token, (file_path, time() + self.timeout))
+        return True
+
+
 class FileService:
     IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"}
     VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
     AUDIO_SUFFIXES = {".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".amr"}
     MEDIA_TOKEN_RESTORE_INTERVAL = 300
+    MIN_MEDIA_TOKEN_TTL = 30 * 24 * 60 * 60
 
     def __init__(self, cfg: PluginConfig, store: QQWebuiStore) -> None:
         self.cfg = cfg
         self.store = store
         self.media_dir = self.cfg.media_dir
+        self.media_token_ttl = max(self.cfg.media_token_ttl, self.MIN_MEDIA_TOKEN_TTL)
+        if self.cfg.media_token_ttl < self.MIN_MEDIA_TOKEN_TTL:
+            logger.info(
+                "[qqwebui] media_token_ttl=%s is below the supported minimum; "
+                "using %s seconds",
+                self.cfg.media_token_ttl,
+                self.MIN_MEDIA_TOKEN_TTL,
+            )
         self._media_tokens_registered_at = 0.0
+        self._staged_files: _RestorableStagedFiles | None = None
+
+    def take_over_staged_files(self) -> None:
+        """Install the plugin-owned reusable token map.
+
+        The core file token service intentionally treats tokens as one-shot. The
+        qqwebui needs media previews to survive repeated browser reads, so only
+        tokens persisted by this plugin are restored after core pops them.
+        """
+
+        staged_files = file_token_service.staged_files
+        if isinstance(staged_files, _RestorableStagedFiles):
+            staged_files.store = self.store
+            staged_files.timeout = self.media_token_ttl
+            self._staged_files = staged_files
+            return
+        self._staged_files = _RestorableStagedFiles(
+            dict(staged_files),
+            self.store,
+            self.media_token_ttl,
+        )
+        file_token_service.staged_files = self._staged_files
+
+    def release_staged_files(self) -> None:
+        """Restore AstrBot's normal staged file mapping when the plugin stops."""
+
+        if self._staged_files is None:
+            return
+        if file_token_service.staged_files is self._staged_files:
+            file_token_service.staged_files = dict(self._staged_files)
+        self._staged_files = None
 
     async def upload_media(self, upload: PluginUploadFile) -> dict[str, str | int]:
         filename = Path(upload.filename or "").name
@@ -91,9 +196,10 @@ class FileService:
             raise ValueError("file path is required")
         file_token = await file_token_service.register_file(
             resolved_file_path,
-            timeout=self.cfg.media_token_ttl,
+            timeout=self.media_token_ttl,
         )
         self.store.media_tokens.remember(file_token, resolved_file_path)
+        self.store.persist()
         return file_token
 
     def ensure_media_tokens_registered(self, *, force: bool = False) -> None:
@@ -112,7 +218,7 @@ class FileService:
             return
         self._media_tokens_registered_at = now
         self.store.media_tokens.prune_missing_files()
-        expire_time = now + self.cfg.media_token_ttl
+        expire_time = now + self.media_token_ttl
         for entry in self.store.media_tokens.entries:
             token = str(entry.get("token", "") or "").strip()
             file_path = str(entry.get("file_path", "") or "").strip()
