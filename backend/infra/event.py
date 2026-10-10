@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -65,7 +66,7 @@ class OnebotEvent:
                 message_type=str(payload.get("message_type", "")),
                 sub_type=str(payload.get("sub_type", "")),
                 raw_message=str(payload.get("raw_message", "")),
-                message=[dict(item) for item in raw_segments if isinstance(item, dict)],
+                message=[copy.deepcopy(item) for item in raw_segments if isinstance(item, dict)],
                 sender=(
                     Sender.from_dict(sender)
                     if isinstance(sender, dict)
@@ -112,7 +113,7 @@ class OnebotEvent:
             group_id=group_id,
             group_name=str(payload.get("group_name", "")),
             notice_type=notice_type,
-            notice=dict(payload),
+            notice=copy.deepcopy(payload),
             _target_id=target_id,
         )
 
